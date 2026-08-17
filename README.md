@@ -13,19 +13,21 @@ The project uses [uv](https://docs.astral.sh/uv/) for Python project and depende
   - `.jpeg`
   - `.heic`
   - `.mov`
-  - `.mp4`
-- Generate Apple-compatible `.pvt` Live Photo packages.
+  - Normalize temporary resources to HEIC and HEVC (`hvc1`) before packaging.
+  - Prepare each temporary MOV with a known-working Live Photo metadata template.
+- Verify the prepared package keeps the required motion metadata.
 - Store all generated packages in the `output` directory.
 - Never modify files in the `input` directory.
-- Skip existing `.pvt` files.
 - Show a progress bar with `tqdm`.
-- Report successful, skipped, missing, and failed files.
+- Report standard Live Photo and Lock Screen metadata eligibility separately.
 
 ## Requirements
 
 - macOS
 - Python 3.9+
 - [uv](https://docs.astral.sh/uv/)
+- Xcode Command Line Tools (`xcrun swiftc`)
+- FFmpeg with `libx265`
 
 `makelive` is executed through `uvx`, so it does not need to be installed manually.
 
@@ -37,12 +39,16 @@ live-photo-batch/
 ├── uv.lock
 ├── README.md
 ├── make_livephotos.py
+├── prepare_wallpaper_video.py
+├── check_live_wallpaper.swift
 ├── input/
 │   ├── IMG_0001.JPG
 │   ├── IMG_0001.MOV
 │   ├── IMG_0002.JPG
 │   ├── IMG_0002.MOV
 │   └── ...
+├── reference/
+│   └── WORKING_LIVE_PHOTO.MOV
 └── output/
     ├── IMG_0001.pvt
     ├── IMG_0002.pvt
@@ -54,6 +60,8 @@ The `input` directory contains the original image and video files.
 The `output` directory contains the generated `.pvt` packages.
 
 The script never modifies the original files in `input`.
+
+The `reference` directory must contain an exported MOV from a Live Photo that is known to enable the Lock Screen Animate control on the target iPhone. The batch script selects a compatible fixed-sample metadata template.
 
 ## Installation
 
@@ -92,6 +100,12 @@ Run:
 uv run python make_livephotos.py
 ```
 
+To replace already-generated output packages:
+
+```
+uv run python make_livephotos.py --force
+```
+
 The script automatically creates the `output` directory if it does not exist.
 
 For the following pair:
@@ -118,13 +132,6 @@ IMG_0001.JPG
 IMG_0001.MOV
 ```
 
-Also valid:
-
-```
-IMG_0002.HEIC
-IMG_0002.MP4
-```
-
 Invalid:
 
 ```
@@ -136,7 +143,7 @@ because the filename stems do not match.
 
 ## Existing Output
 
-If the corresponding `.pvt` file already exists, the script skips that pair.
+If the corresponding `.pvt` file already exists, the script skips that pair. Pass `--force` to replace it.
 
 For example:
 
@@ -152,13 +159,24 @@ output/
 
 `IMG_0001` will be skipped.
 
-Delete the existing package if it needs to be regenerated:
+## iOS Lock Screen Animation
 
-```
-rm -rf output/IMG_0001.pvt
-```
+For each input pair, the script creates temporary resources without changing `input`:
 
-Then run the script again.
+1. Convert the cover image to HEIC at the MOV canvas dimensions.
+2. Encode the MOV video stream as HEVC Main with an `hvc1` tag and a 600-unit time scale.
+3. Copy the compatible Live Photo metadata template, expand its frame metadata to the source video duration, and add `cdsc` references from metadata tracks to the video track.
+4. Package the temporary HEIC/MOV pair with `makelive` and verify the packaged MOV retains the metadata.
+
+The template and each generated package are checked for these Apple timed metadata identifiers:
+
+- `com.apple.quicktime.live-photo-info`
+- `com.apple.quicktime.live-photo-still-image-transform`
+- `com.apple.quicktime.still-image-time`
+
+The final Lock Screen decision remains with iOS, so import a regenerated package and test it on the target iPhone.
+
+This workflow supports `.mov` input only. MP4 is excluded because `makelive` may re-export it and discard the metadata tracks.
 
 ## Progress
 

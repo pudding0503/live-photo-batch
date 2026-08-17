@@ -1,0 +1,427 @@
+from __future__ import annotations
+
+import argparse
+from dataclasses import dataclass
+from pathlib import Path
+import struct
+
+
+CONTAINER_TYPES = {b"moov", b"trak", b"mdia", b"minf", b"stbl", b"edts", b"dinf", b"udta"}
+LIVE_PHOTO_INFO_KEY = b"com.apple.quicktime.live-photo-info"
+STILL_IMAGE_TIME_KEY = b"com.apple.quicktime.still-image-time"
+
+
+@dataclass(frozen=True)
+class Box:
+    kind: bytes
+    offset: int
+    size: int
+    header_size: int
+
+    @property
+    def data_offset(self) -> int:
+        return self.offset + self.header_size
+
+    @property
+    def end(self) -> int:
+        return self.offset + self.size
+
+
+class MovPreparationError(RuntimeError):
+    pass
+
+
+def parse_box(data: bytes | bytearray, offset: int, end: int) -> Box:
+    if offset + 8 > end:
+        raise MovPreparationError("Truncated MOV box header")
+
+    size, kind = struct.unpack_from(">I4s", data, offset)
+    header_size = 8
+    if size == 1:
+        if offset + 16 > end:
+            raise MovPreparationError("Truncated extended MOV box header")
+        size = struct.unpack_from(">Q", data, offset + 8)[0]
+        header_size = 16
+    elif size == 0:
+        size = end - offset
+
+    if size < header_size or offset + size > end:
+        raise MovPreparationError(f"Invalid {kind.decode(errors='replace')} box size")
+
+    return Box(kind=kind, offset=offset, size=size, header_size=header_size)
+
+
+def child_boxes(data: bytes | bytearray, parent: Box) -> list[Box]:
+    if parent.kind not in CONTAINER_TYPES:
+        return []
+
+    children = []
+    offset = parent.data_offset
+    while offset < parent.end:
+        child = parse_box(data, offset, parent.end)
+        children.append(child)
+        offset = child.end
+    return children
+
+
+def find_child(data: bytes | bytearray, parent: Box, kind: bytes) -> Box:
+    for child in child_boxes(data, parent):
+        if child.kind == kind:
+            return child
+    raise MovPreparationError(
+        f"Missing {kind.decode(errors='replace')} box in {parent.kind.decode(errors='replace')}"
+    )
+
+
+def find_descendant(data: bytes | bytearray, parent: Box, path: tuple[bytes, ...]) -> Box:
+    current = parent
+    for kind in path:
+        current = find_child(data, current, kind)
+    return current
+
+
+def top_level_boxes(data: bytes | bytearray) -> list[Box]:
+    root = Box(kind=b"root", offset=0, size=len(data), header_size=0)
+    offset = root.data_offset
+    boxes = []
+    while offset < root.end:
+        box = parse_box(data, offset, root.end)
+        boxes.append(box)
+        offset = box.end
+    return boxes
+
+
+def find_top_level(data: bytes | bytearray, kind: bytes) -> Box:
+    for box in top_level_boxes(data):
+        if box.kind == kind:
+            return box
+    raise MovPreparationError(f"Missing top-level {kind.decode(errors='replace')} box")
+
+
+def track_id(data: bytes | bytearray, track: Box) -> int:
+    tkhd = find_child(data, track, b"tkhd")
+    version = data[tkhd.data_offset]
+    offset = tkhd.data_offset + (20 if version == 1 else 12)
+    return struct.unpack_from(">I", data, offset)[0]
+
+
+def set_track_id(data: bytearray, track: Box, identifier: int) -> None:
+    tkhd = find_child(data, track, b"tkhd")
+    version = data[tkhd.data_offset]
+    offset = tkhd.data_offset + (20 if version == 1 else 12)
+    struct.pack_into(">I", data, offset, identifier)
+
+
+def sample_size(data: bytes | bytearray, track: Box) -> int:
+    stbl = find_descendant(data, track, (b"mdia", b"minf", b"stbl"))
+    stsz = find_child(data, stbl, b"stsz")
+    default_size, count = struct.unpack_from(">II", data, stsz.data_offset + 4)
+    if default_size:
+        return default_size * count
+
+    sizes = struct.unpack_from(f">{count}I", data, stsz.data_offset + 12)
+    return sum(sizes)
+
+
+def sample_count(data: bytes | bytearray, track: Box) -> int:
+    stbl = find_descendant(data, track, (b"mdia", b"minf", b"stbl"))
+    stsz = find_child(data, stbl, b"stsz")
+    return struct.unpack_from(">I", data, stsz.data_offset + 8)[0]
+
+
+def media_timescale(data: bytes | bytearray, track: Box) -> int:
+    mdhd = find_descendant(data, track, (b"mdia", b"mdhd"))
+    version = data[mdhd.data_offset]
+    offset = mdhd.data_offset + (20 if version == 1 else 12)
+    return struct.unpack_from(">I", data, offset)[0]
+
+
+def media_duration(data: bytes | bytearray, track: Box) -> int:
+    mdhd = find_descendant(data, track, (b"mdia", b"mdhd"))
+    version = data[mdhd.data_offset]
+    offset = mdhd.data_offset + (24 if version == 1 else 16)
+    return struct.unpack_from(">Q" if version == 1 else ">I", data, offset)[0]
+
+
+def set_media_duration(data: bytearray, track: Box, duration: int) -> None:
+    mdhd = find_descendant(data, track, (b"mdia", b"mdhd"))
+    version = data[mdhd.data_offset]
+    offset = mdhd.data_offset + (24 if version == 1 else 16)
+    struct.pack_into(">Q" if version == 1 else ">I", data, offset, duration)
+
+
+def set_track_duration(data: bytearray, track: Box, duration: int) -> None:
+    tkhd = find_child(data, track, b"tkhd")
+    version = data[tkhd.data_offset]
+    offset = tkhd.data_offset + (28 if version == 1 else 20)
+    struct.pack_into(">Q" if version == 1 else ">I", data, offset, duration)
+
+
+def presentation_duration(data: bytes | bytearray, track: Box) -> int:
+    edts = next((box for box in child_boxes(data, track) if box.kind == b"edts"), None)
+    if edts is None:
+        raise MovPreparationError("Input video track is missing an edit list")
+
+    elst = find_child(data, edts, b"elst")
+    version = data[elst.data_offset]
+    count = struct.unpack_from(">I", data, elst.data_offset + 4)[0]
+    offset = elst.data_offset + 8
+    duration = 0
+    for _ in range(count):
+        if version == 1:
+            segment_duration, media_time = struct.unpack_from(">Qq", data, offset)
+            offset += 20
+        else:
+            segment_duration, media_time = struct.unpack_from(">Ii", data, offset)
+            offset += 12
+        if media_time >= 0:
+            duration += segment_duration
+    return duration
+
+
+def movie_timescale(data: bytes | bytearray, moov: Box) -> int:
+    mvhd = find_child(data, moov, b"mvhd")
+    version = data[mvhd.data_offset]
+    offset = mvhd.data_offset + (20 if version == 1 else 12)
+    return struct.unpack_from(">I", data, offset)[0]
+
+
+def set_metadata_edit_list(data: bytearray, track: Box, duration: int, leading_duration: int) -> None:
+    edts = find_child(data, track, b"edts")
+    elst = find_child(data, edts, b"elst")
+    version = data[elst.data_offset]
+    count = struct.unpack_from(">I", data, elst.data_offset + 4)[0]
+    if count != 2:
+        raise MovPreparationError("Template metadata track must contain a two-entry edit list")
+
+    first_offset = elst.data_offset + 8
+    second_offset = first_offset + (20 if version == 1 else 12)
+    if version == 1:
+        struct.pack_into(">Q", data, first_offset, leading_duration)
+        struct.pack_into(">Q", data, second_offset, duration)
+    else:
+        struct.pack_into(">I", data, first_offset, leading_duration)
+        struct.pack_into(">I", data, second_offset, duration)
+
+
+def set_live_photo_info_timing(
+    data: bytearray,
+    track: Box,
+    count: int,
+    sample_duration: int,
+    presentation_duration_value: int,
+    leading_duration: int,
+) -> None:
+    stbl = find_descendant(data, track, (b"mdia", b"minf", b"stbl"))
+    stts = find_child(data, stbl, b"stts")
+    stsz = find_child(data, stbl, b"stsz")
+    stsc = find_child(data, stbl, b"stsc")
+
+    if stts.size != 24 or stsc.size != 28:
+        raise MovPreparationError("Template live-photo-info sample tables must contain one entry")
+
+    struct.pack_into(">I", data, stts.data_offset + 4, 1)
+    struct.pack_into(">II", data, stts.data_offset + 8, count, sample_duration)
+    struct.pack_into(">I", data, stsz.data_offset + 8, count)
+    struct.pack_into(">I", data, stsc.data_offset + 4, 1)
+    struct.pack_into(">III", data, stsc.data_offset + 8, 1, count, 1)
+    set_media_duration(data, track, count * sample_duration)
+    set_track_duration(data, track, leading_duration + presentation_duration_value)
+    set_metadata_edit_list(data, track, presentation_duration_value, leading_duration)
+
+
+def chunk_offsets(data: bytes | bytearray, track: Box) -> list[int]:
+    stbl = find_descendant(data, track, (b"mdia", b"minf", b"stbl"))
+    stco = find_child(data, stbl, b"stco")
+    count = struct.unpack_from(">I", data, stco.data_offset + 4)[0]
+    return list(struct.unpack_from(f">{count}I", data, stco.data_offset + 8))
+
+
+def set_single_chunk_offset(data: bytearray, track: Box, offset: int) -> None:
+    stbl = find_descendant(data, track, (b"mdia", b"minf", b"stbl"))
+    stco = find_child(data, stbl, b"stco")
+    count = struct.unpack_from(">I", data, stco.data_offset + 4)[0]
+    if count != 1:
+        raise MovPreparationError("Template metadata track must contain exactly one chunk")
+    struct.pack_into(">I", data, stco.data_offset + 8, offset)
+
+
+def shift_chunk_offsets(data: bytearray, track: Box, delta: int) -> None:
+    stbl = find_descendant(data, track, (b"mdia", b"minf", b"stbl"))
+    stco = find_child(data, stbl, b"stco")
+    count = struct.unpack_from(">I", data, stco.data_offset + 4)[0]
+    for index in range(count):
+        entry_offset = stco.data_offset + 8 + index * 4
+        original_offset = struct.unpack_from(">I", data, entry_offset)[0]
+        updated_offset = original_offset + delta
+        if not 0 <= updated_offset <= 0xFFFFFFFF:
+            raise MovPreparationError("Chunk offset does not fit in stco")
+        struct.pack_into(">I", data, entry_offset, updated_offset)
+
+
+def set_metadata_video_reference(data: bytearray, track: Box, video_track_id: int) -> None:
+    reference = struct.pack(">I4sI", 12, b"cdsc", video_track_id)
+    tref = struct.pack(">I4s", 20, b"tref") + reference
+    mdia = find_child(data, track, b"mdia")
+    data[mdia.offset:mdia.offset] = tref
+    struct.pack_into(">I", data, track.offset, len(data))
+
+
+def metadata_tracks(data: bytes, moov: Box) -> list[Box]:
+    tracks = []
+    for track in child_boxes(data, moov):
+        if track.kind != b"trak":
+            continue
+        payload = data[track.offset:track.end]
+        if LIVE_PHOTO_INFO_KEY in payload or STILL_IMAGE_TIME_KEY in payload:
+            tracks.append(track)
+
+    if len(tracks) != 2:
+        raise MovPreparationError("Template must contain two Live Photo metadata tracks")
+    return tracks
+
+
+def clone_metadata_track(
+    template_data: bytes,
+    template_track: Box,
+    chunk_offset: int,
+    identifier: int,
+    video_track_id: int,
+    video_samples: int,
+    video_media_duration: int,
+    video_timescale: int,
+    movie_timescale: int,
+    video_presentation_duration: int,
+) -> tuple[bytearray, bytes]:
+    offsets = chunk_offsets(template_data, template_track)
+    if len(offsets) != 1:
+        raise MovPreparationError("Template metadata track must contain exactly one chunk")
+
+    size = sample_size(template_data, template_track)
+    sample_offset = offsets[0]
+    sample_data = template_data[sample_offset:sample_offset + size]
+    if len(sample_data) != size:
+        raise MovPreparationError("Template metadata samples extend beyond the MOV data")
+
+    clone = bytearray(template_data[template_track.offset:template_track.end])
+    clone_track = Box(kind=b"trak", offset=0, size=len(clone), header_size=8)
+    set_track_id(clone, clone_track, identifier)
+    is_live_photo_info = LIVE_PHOTO_INFO_KEY in template_data[template_track.offset:template_track.end]
+    if is_live_photo_info:
+        if sample_count(template_data, template_track) == 0:
+            raise MovPreparationError("Template live-photo-info track has no samples")
+        payload_size = size // sample_count(template_data, template_track)
+        if payload_size * sample_count(template_data, template_track) != size:
+            raise MovPreparationError("Template live-photo-info samples must have a fixed size")
+        sample_data = sample_data[:payload_size] * video_samples
+
+    clone_track = Box(kind=b"trak", offset=0, size=len(clone), header_size=8)
+    set_metadata_video_reference(clone, clone_track, video_track_id)
+    clone_track = Box(kind=b"trak", offset=0, size=len(clone), header_size=8)
+    set_single_chunk_offset(clone, clone_track, chunk_offset)
+    if is_live_photo_info:
+        metadata_timescale = media_timescale(clone, clone_track)
+        total_duration = round(video_media_duration * metadata_timescale / video_timescale)
+        if total_duration % video_samples != 0:
+            raise MovPreparationError("Input video duration cannot be divided into metadata frame samples")
+        leading_duration = round(movie_timescale / 20)
+        set_live_photo_info_timing(
+            clone,
+            clone_track,
+            video_samples,
+            total_duration // video_samples,
+            video_presentation_duration,
+            leading_duration,
+        )
+    return clone, sample_data
+
+
+def update_next_track_id(moov: bytearray, identifier: int) -> None:
+    moov_box = Box(kind=b"moov", offset=0, size=len(moov), header_size=8)
+    mvhd = find_child(moov, moov_box, b"mvhd")
+    struct.pack_into(">I", moov, mvhd.end - 4, identifier)
+
+
+def prepare_wallpaper_video(template_path: Path, input_path: Path, output_path: Path) -> None:
+    template_data = template_path.read_bytes()
+    input_data = input_path.read_bytes()
+    template_moov = find_top_level(template_data, b"moov")
+    input_mdat = find_top_level(input_data, b"mdat")
+    input_moov = find_top_level(input_data, b"moov")
+
+    template_tracks = metadata_tracks(template_data, template_moov)
+    input_moov_data = bytearray(input_data[input_moov.offset:input_moov.end])
+    input_moov_box = Box(kind=b"moov", offset=0, size=len(input_moov_data), header_size=8)
+    input_tracks = [
+        track for track in child_boxes(input_moov_data, input_moov_box) if track.kind == b"trak"
+    ]
+    input_video_track = input_tracks[0]
+    next_track_id = max(track_id(input_moov_data, track) for track in input_tracks) + 1
+    video_track_id = track_id(input_moov_data, input_video_track)
+    video_samples = sample_count(input_moov_data, input_video_track)
+    video_media_duration = media_duration(input_moov_data, input_video_track)
+    video_timescale = media_timescale(input_moov_data, input_video_track)
+    video_presentation_duration = presentation_duration(input_moov_data, input_video_track)
+    input_movie_timescale = movie_timescale(input_moov_data, input_moov_box)
+
+    target_payload = input_data[input_mdat.data_offset:input_mdat.end]
+    prefix = b"".join(
+        input_data[box.offset:box.end]
+        for box in top_level_boxes(input_data)
+        if box.kind not in {b"mdat", b"moov"}
+    )
+    target_payload_offset = len(prefix) + 8
+    offset_delta = target_payload_offset - input_mdat.data_offset
+    for track in input_tracks:
+        shift_chunk_offsets(input_moov_data, track, offset_delta)
+
+    first_metadata_offset = target_payload_offset + len(target_payload)
+    cloned_tracks = []
+    metadata_payloads = []
+    metadata_offset = first_metadata_offset
+    for template_track in template_tracks:
+        clone, payload = clone_metadata_track(
+            template_data,
+            template_track,
+            metadata_offset,
+            next_track_id,
+            video_track_id,
+            video_samples,
+            video_media_duration,
+            video_timescale,
+            input_movie_timescale,
+            video_presentation_duration,
+        )
+        cloned_tracks.append(clone)
+        metadata_payloads.append(payload)
+        metadata_offset += len(payload)
+        next_track_id += 1
+
+    last_track_end = max(track.end for track in input_tracks)
+    input_moov_data[last_track_end:last_track_end] = b"".join(cloned_tracks)
+    struct.pack_into(">I", input_moov_data, 0, len(input_moov_data))
+    update_next_track_id(input_moov_data, next_track_id)
+
+    new_mdat_payload = target_payload + b"".join(metadata_payloads)
+    new_mdat = struct.pack(">I4s", len(new_mdat_payload) + 8, b"mdat") + new_mdat_payload
+    output_data = prefix + new_mdat + input_moov_data
+    output_path.write_bytes(output_data)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Inject template Live Photo metadata tracks into a MOV without transcoding video."
+    )
+    parser.add_argument("template", type=Path, help="A known working Live Photo MOV")
+    parser.add_argument("input", type=Path, help="Source MOV to preserve without transcoding")
+    parser.add_argument("output", type=Path, help="Prepared MOV output path")
+    arguments = parser.parse_args()
+
+    try:
+        prepare_wallpaper_video(arguments.template, arguments.input, arguments.output)
+    except (OSError, MovPreparationError) as exc:
+        parser.error(str(exc))
+
+
+if __name__ == "__main__":
+    main()
