@@ -40,7 +40,7 @@ def parse_arguments() -> argparse.Namespace:
 
 def find_matching_video(image: Path) -> Path | None:
     """Find a video with the same filename stem as the image."""
-    for extension in (".mov",):
+    for extension in (".mov", ".mp4"):
         for candidate in (
             INPUT_DIR / f"{image.stem}{extension}",
             INPUT_DIR / f"{image.stem}{extension.upper()}",

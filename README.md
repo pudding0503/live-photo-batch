@@ -13,6 +13,7 @@ The project uses [uv](https://docs.astral.sh/uv/) for Python project and depende
   - `.jpeg`
   - `.heic`
   - `.mov`
+  - `.mp4`
   - Normalize temporary resources to HEIC and HEVC (`hvc1`) before packaging.
   - Prepare each temporary MOV with a known-working Live Photo metadata template.
 - Verify the prepared package keeps the required motion metadata.
@@ -43,9 +44,9 @@ live-photo-batch/
 ├── check_live_wallpaper.swift
 ├── input/
 │   ├── IMG_0001.JPG
-│   ├── IMG_0001.MOV
+│   ├── IMG_0001.MP4
 │   ├── IMG_0002.JPG
-│   ├── IMG_0002.MOV
+│   ├── IMG_0002.MP4
 │   └── ...
 ├── reference/
 │   └── WORKING_LIVE_PHOTO.MOV
@@ -88,9 +89,9 @@ For example:
 ```
 input/
 ├── IMG_0001.JPG
-├── IMG_0001.MOV
+├── IMG_0001.MP4
 ├── IMG_0002.JPG
-├── IMG_0002.MOV
+├── IMG_0002.MP4
 └── IMG_0003.JPG
 ```
 
@@ -112,7 +113,7 @@ For the following pair:
 
 ```
 input/IMG_0001.JPG
-input/IMG_0001.MOV
+input/IMG_0001.MP4
 ```
 
 the output will be:
@@ -129,14 +130,14 @@ Valid:
 
 ```
 IMG_0001.JPG
-IMG_0001.MOV
+IMG_0001.MP4
 ```
 
 Invalid:
 
 ```
 IMG_0003.JPG
-IMG_1234.MOV
+IMG_1234.MP4
 ```
 
 because the filename stems do not match.
@@ -150,7 +151,7 @@ For example:
 ```
 input/
 ├── IMG_0001.JPG
-└── IMG_0001.MOV
+└── IMG_0001.MP4
 
 
 output/
@@ -163,8 +164,8 @@ output/
 
 For each input pair, the script creates temporary resources without changing `input`:
 
-1. Convert the cover image to HEIC at the MOV canvas dimensions.
-2. Encode the MOV video stream as HEVC Main with an `hvc1` tag and a 600-unit time scale.
+1. Convert the cover image to HEIC at the video canvas dimensions.
+2. Encode the source video stream as HEVC Main with an `hvc1` tag and a 600-unit time scale.
 3. Copy the compatible Live Photo metadata template, expand its frame metadata to the source video duration, and add `cdsc` references from metadata tracks to the video track.
 4. Package the temporary HEIC/MOV pair with `makelive` and verify the packaged MOV retains the metadata.
 
@@ -174,9 +175,9 @@ The template and each generated package are checked for these Apple timed metada
 - `com.apple.quicktime.live-photo-still-image-transform`
 - `com.apple.quicktime.still-image-time`
 
-The final Lock Screen decision remains with iOS, so import a regenerated package and test it on the target iPhone.
+The final Lock Screen decision remains with iOS, so import a regenerated package and test it on the target iPhone. Metadata and Live Photo pairing checks do not prove that iOS will enable Lock Screen animation.
 
-This workflow supports `.mov` input only. MP4 is excluded because `makelive` may re-export it and discard the metadata tracks.
+This workflow accepts matching `.mov` or `.mp4` input. Both are normalized into a temporary MOV before `makelive` runs, so the original input files are unchanged.
 
 ## Progress
 
@@ -215,7 +216,7 @@ input/
 without:
 
 ```
-input/IMG_0007.MOV
+input/IMG_0007.MP4
 ```
 
 will produce:
@@ -237,13 +238,13 @@ The script continues processing the remaining pairs.
 A single image/video pair can be checked with:
 
 ```
-uvx makelive --check --manual input/IMG_0001.JPG input/IMG_0001.MOV
+uvx makelive --check --manual input/IMG_0001.JPG input/IMG_0001.MP4
 ```
 
 A valid Live Photo pair should produce output similar to:
 
 ```
-IMG_0001.JPG and IMG_0001.MOV are Live Photos: D7D2D912-454C-4050-B905-306D3921D10B
+IMG_0001.JPG and IMG_0001.MP4 are Live Photos: D7D2D912-454C-4050-B905-306D3921D10B
 ```
 
 The identifier will vary between Live Photos.
@@ -253,7 +254,7 @@ The identifier will vary between Live Photos.
 A single `.pvt` package can be generated with:
 
 ```
-uvx makelive --pvt --manual input/IMG_0001.JPG input/IMG_0001.MOV
+uvx makelive --pvt --manual input/IMG_0001.JPG input/IMG_0001.MP4
 ```
 
 When using the batch script, the generated package is placed in `output`.

@@ -179,6 +179,29 @@ def presentation_duration(data: bytes | bytearray, track: Box) -> int:
     return duration
 
 
+def presentation_start_media_time(data: bytes | bytearray, track: Box) -> int:
+    """Return the media time at which the track's presentation begins."""
+    edts = next((box for box in child_boxes(data, track) if box.kind == b"edts"), None)
+    if edts is None:
+        raise MovPreparationError("Input video track is missing an edit list")
+
+    elst = find_child(data, edts, b"elst")
+    version = data[elst.data_offset]
+    count = struct.unpack_from(">I", data, elst.data_offset + 4)[0]
+    offset = elst.data_offset + 8
+    for _ in range(count):
+        if version == 1:
+            _, media_time = struct.unpack_from(">Qq", data, offset)
+            offset += 20
+        else:
+            _, media_time = struct.unpack_from(">Ii", data, offset)
+            offset += 12
+        if media_time >= 0:
+            return media_time
+
+    raise MovPreparationError("Input video track edit list has no media segment")
+
+
 def movie_timescale(data: bytes | bytearray, moov: Box) -> int:
     mvhd = find_child(data, moov, b"mvhd")
     version = data[mvhd.data_offset]
@@ -290,8 +313,8 @@ def clone_metadata_track(
     video_samples: int,
     video_media_duration: int,
     video_timescale: int,
-    movie_timescale: int,
     video_presentation_duration: int,
+    metadata_leading_duration: int,
 ) -> tuple[bytearray, bytes]:
     offsets = chunk_offsets(template_data, template_track)
     if len(offsets) != 1:
@@ -324,14 +347,13 @@ def clone_metadata_track(
         total_duration = round(video_media_duration * metadata_timescale / video_timescale)
         if total_duration % video_samples != 0:
             raise MovPreparationError("Input video duration cannot be divided into metadata frame samples")
-        leading_duration = round(movie_timescale / 20)
         set_live_photo_info_timing(
             clone,
             clone_track,
             video_samples,
             total_duration // video_samples,
             video_presentation_duration,
-            leading_duration,
+            metadata_leading_duration,
         )
     return clone, sample_data
 
@@ -363,6 +385,10 @@ def prepare_wallpaper_video(template_path: Path, input_path: Path, output_path: 
     video_timescale = media_timescale(input_moov_data, input_video_track)
     video_presentation_duration = presentation_duration(input_moov_data, input_video_track)
     input_movie_timescale = movie_timescale(input_moov_data, input_moov_box)
+    video_presentation_start = presentation_start_media_time(input_moov_data, input_video_track)
+    metadata_leading_duration = round(
+        video_presentation_start * input_movie_timescale / video_timescale
+    )
 
     target_payload = input_data[input_mdat.data_offset:input_mdat.end]
     prefix = b"".join(
@@ -389,8 +415,8 @@ def prepare_wallpaper_video(template_path: Path, input_path: Path, output_path: 
             video_samples,
             video_media_duration,
             video_timescale,
-            input_movie_timescale,
             video_presentation_duration,
+            metadata_leading_duration,
         )
         cloned_tracks.append(clone)
         metadata_payloads.append(payload)
