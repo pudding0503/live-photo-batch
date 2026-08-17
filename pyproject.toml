@@ -3,8 +3,9 @@ name = "live-photo-batch"
 version = "0.1.0"
 description = "Batch convert image and video pairs into Apple Live Photo PVT packages"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
+    "makelive==0.7.0",
     "tqdm>=4.67.0",
 ]
 

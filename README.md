@@ -25,12 +25,14 @@ The project uses [uv](https://docs.astral.sh/uv/) for Python project and depende
 ## Requirements
 
 - macOS
-- Python 3.9+
+- Python 3.10+
 - [uv](https://docs.astral.sh/uv/)
 - Xcode Command Line Tools (`xcrun swiftc`)
 - FFmpeg with the macOS `hevc_videotoolbox` encoder
 
-`makelive` is executed through `uvx`, so it does not need to be installed manually.
+The project pins `makelive` 0.7.0 as a dependency. `uv sync` installs it into
+the project environment, so the batch script does not create a temporary `uvx`
+tool environment for every package.
 
 ## Directory Structure
 
@@ -231,16 +233,20 @@ The remaining files will continue to process.
 
 ## Failed Files
 
-If `makelive` returns an error or the expected `.pvt` package is not generated, the file is reported as failed.
+If `makelive` returns an error, exceeds the 120-second per-package timeout, or
+does not generate the expected `.pvt` package, the file is reported as failed.
 
 The script continues processing the remaining pairs.
+
+Pressing Ctrl-C stops the batch without a traceback. Packages completed before
+the interruption remain in `output`.
 
 ## Manual Verification
 
 A single image/video pair can be checked with:
 
 ```
-uvx makelive --check --manual input/IMG_0001.JPG input/IMG_0001.MP4
+uv run makelive --check --manual input/IMG_0001.JPG input/IMG_0001.MP4
 ```
 
 A valid Live Photo pair should produce output similar to:
@@ -256,7 +262,7 @@ The identifier will vary between Live Photos.
 A single `.pvt` package can be generated with:
 
 ```
-uvx makelive --pvt --manual input/IMG_0001.JPG input/IMG_0001.MP4
+uv run makelive --pvt --manual input/IMG_0001.JPG input/IMG_0001.MP4
 ```
 
 When using the batch script, the generated package is placed in `output`.

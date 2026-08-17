@@ -28,6 +28,7 @@ WALLPAPER_PREPARER = ROOT / "prepare_wallpaper_video.py"
 FIXED_LIVE_PHOTO_INFO_MARKER = b"com.apple.quicktime.live-photo-info"
 REFERENCE_DIMENSIONS_MARKER = b"live-photo-still-image-transform-reference-dimensions"
 WALLPAPER_FRAME_RATE = 60
+MAKELIVE_TIMEOUT_SECONDS = 120
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -237,9 +238,9 @@ def prepare_wallpaper_video(template: Path, video: Path, prepared_video: Path) -
 def main() -> None:
     arguments = parse_arguments()
 
-    if shutil.which("uv") is None:
-        print("Error: uv was not found in PATH.")
-        print("Make sure `uv --version` works.")
+    if shutil.which("makelive") is None:
+        print("Error: makelive 0.7.0 was not found in PATH.")
+        print("Run `uv sync` before running this script.")
         sys.exit(1)
 
     if any(shutil.which(command) is None for command in ("ffmpeg", "ffprobe", "sips")):
@@ -350,7 +351,6 @@ def main() -> None:
         prepared.append(image.name)
 
         command = [
-            "uvx",
             "makelive",
             "--pvt",
             "--manual",
@@ -366,7 +366,15 @@ def main() -> None:
                 stderr=subprocess.PIPE,
                 text=True,
                 check=False,
+                timeout=MAKELIVE_TIMEOUT_SECONDS,
             )
+        except subprocess.TimeoutExpired:
+            failed.append(image.name)
+            tqdm.write(
+                f"Failed: {image.name}: makelive exceeded "
+                f"{MAKELIVE_TIMEOUT_SECONDS} seconds"
+            )
+            continue
         except OSError as exc:
             failed.append(image.name)
             tqdm.write(f"Failed: {image.name}: {exc}")
@@ -456,4 +464,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nInterrupted. Existing completed packages were retained.")
+        sys.exit(130)
