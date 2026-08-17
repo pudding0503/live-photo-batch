@@ -14,7 +14,6 @@ Create Apple Live Photo `.pvt` packages from an image and a video. The verified 
 
 ```text
 input/      # Source .jpg/.jpeg/.heic and .mov/.mp4 pairs
-reference/  # Device-verified Live Photo metadata template MOVs
 output/     # Generated PVT packages
 ```
 
@@ -39,7 +38,7 @@ The converter makes a 60 fps output from every source. A 30 fps source gains dup
 
 The generator does not apply a product-level duration cap or trim video. Container size, memory, and VideoToolbox can still impose practical technical limits. The verified target-device result is a 2.07-second source normalized to 60 fps. Treat longer durations as uncharacterized: generate a fresh PVT and test it in the target iPhone Lock Screen UI before relying on it.
 
-At runtime, the generator selects a compatible reference MOV from `reference/`, clones its timed-metadata structure onto the generated video, and packages only the generated HEIC/MOV resources. Reference media is never included in a generated PVT.
+The generator embeds a metadata-only template extracted from a device-verified wallpaper MOV. It contains the required track structure and metadata samples, but no reference still image, video frames, audio, or runtime file dependency.
 
 ## Usage
 
@@ -56,7 +55,7 @@ uv run python make_livephotos.py --force
 
 `makelive` 0.7.0 is pinned as a project dependency, so the batch script invokes the project environment directly rather than creating a temporary `uvx` tool environment for every package. Each packaging operation has a 120-second timeout; Ctrl-C exits cleanly and retains completed packages.
 
-The script never changes `input/` files. It creates an HEIC cover, converts the video to 60 fps VideoToolbox HEVC, clones the verified reference metadata structure, and writes the PVT package to `output/`. Unrelated cover/video content can package successfully, but will normally produce a visible hard transition.
+The script never changes `input/` files. It creates an HEIC cover, converts the video to 60 fps VideoToolbox HEVC, applies the embedded verified metadata structure, and writes the PVT package to `output/`. Unrelated cover/video content can package successfully, but will normally produce a visible hard transition.
 
 ## Verify on iPhone
 

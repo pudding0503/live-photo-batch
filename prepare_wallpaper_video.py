@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 from dataclasses import dataclass
 from pathlib import Path
 import struct
@@ -9,6 +10,68 @@ import struct
 CONTAINER_TYPES = {b"moov", b"trak", b"mdia", b"minf", b"stbl", b"edts", b"dinf", b"udta"}
 LIVE_PHOTO_INFO_KEY = b"com.apple.quicktime.live-photo-info"
 STILL_IMAGE_TIME_KEY = b"com.apple.quicktime.still-image-time"
+
+
+@dataclass(frozen=True)
+class EmbeddedMetadataTrack:
+    track: bytes
+    sample: bytes
+    is_live_photo_info: bool
+
+
+def decode_template(value: str) -> bytes:
+    return base64.b64decode(value)
+
+
+# Metadata-only template extracted from the device-verified wallpaper MOV.
+EMBEDDED_METADATA_TRACKS = (
+    EmbeddedMetadataTrack(
+        track=decode_template(
+            "AAAEA3RyYWsAAABcdGtoZAAAAA/hE7Nc4ROzXAAAAAIAAAAAAAACdgAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAA"
+            "AAAAAAAAAAEAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAADBlZHRzAAAAKGVsc3QAAAAAAAAAAgAAAB7/////"
+            "AAEAAAAAAlgAAAAAAAEAAAAAA29tZGlhAAAAIG1kaGQAAAAA4ROzXOETs1wAAOpgAADqYFXEAAAAAAA0aGRscgAA"
+            "AABtaGxybWV0YWFwcGwAAAABAAAAABNDb3JlIE1lZGlhIE1ldGFkYXRhAAADE21pbmYAAAAgZ21oZAAAABhnbWlu"
+            "AAAAAABAgACAAIAAAAAAAAAAADhoZGxyAAAAAGRobHJhbGlzYXBwbAAAAAAAAAAAF0NvcmUgTWVkaWEgRGF0YSBI"
+            "YW5kbGVyAAAAJGRpbmYAAAAcZHJlZgAAAAAAAAABAAAADGFsaXMAAAABAAACj3N0YmwAAAIrc3RzZAAAAAAAAAAB"
+            "AAACG21lYngAAAAAAAAAAQAAAgtrZXlzAAACAwAAAAEAAAAva2V5ZG1kdGFjb20uYXBwbGUucXVpY2t0aW1lLmxp"
+            "dmUtcGhvdG8taW5mbwAAAENkdHlwAAAAAWNvbS5hcHBsZS5xdWlja3RpbWUuY29tLmFwcGxlLnF1aWNrdGltZS5s"
+            "aXZlLXBob3RvLWluZm8AAAFxc2V0dQAAAVljZmd2YnBsaXN0MDDTAQIDBAUMXxAhTGl2ZVBob3RvTWV0YWRhdGFT"
+            "ZXR1cERhdGFWZXJzaW9uXVN5c3RlbVZlcnNpb25fEBFGcmFtZXdvcmtWZXJzaW9ucxAB0wYHCAkKC18QE1Byb2R1"
+            "Y3RCdWlsZFZlcnNpb25bUHJvZHVjdE5hbWVeUHJvZHVjdFZlcnNpb25YMjFBNTI3N2hZaVBob25lIE9TVDE3LjDU"
+            "DQ4PEBESExRaQ29yZU1vdGlvbl1DTUNhcHR1cmVDb3JlXkgxMElTUFNlcnZpY2VzWUNvcmVNZWRpYVgyODY4LjAu"
+            "Mlc0NDYuNS4zVDIwLjJeMzA0NS42OS4yLjExLjQACAAPADMAQQBVAFcAXgB0AIAAjwCYAKIApwCwALsAyQDYAOIA"
+            "6wDzAPgAAAAAAAACAQAAAAAAAAAVAAAAAAAAAAAAAAAAAAABBwAAABBkaW1zAAAHgAAABaAAAAAYY3RwcwAAABBk"
+            "dHlwAAAAAAAAAAAAAAAYc3R0cwAAAAAAAAABAAAAPAAAA+gAAAAcc3RzYwAAAAAAAAABAAAAAQAAADwAAAABAAAA"
+            "FHN0c3oAAAAAAAAAkAAAADwAAAAUc3RjbwAAAAAAAAABAFJlNg=="
+        ),
+        sample=decode_template(
+            "AAAAkAAAAAEDAAAAvcNtPOO1622AAAAAe4CtQlotZEEKCMs+f+6mvXnp9j8AAIBABAD/AAAAAAAAAAAAAAAAAAAA"
+            "AAAAAAAABwAAAFJehz7mblK/GypqxNN4Yr92HtI93j+OwxP1Lzmy8EQ5/zCdvxoX8e0bBwAAIGeW7RsHAAAAAAAA"
+            "AAAAAAAAAAAAAAAA"
+        ),
+        is_live_photo_info=True,
+    ),
+    EmbeddedMetadataTrack(
+        track=decode_template(
+            "AAACoHRyYWsAAABcdGtoZAAAAA/hE7Nc4ROzXAAAAAMAAAAAAAAA+wAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAA"
+            "AAAAAAAAAAEAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAADBlZHRzAAAAKGVsc3QAAAAAAAAAAgAAAPr/////"
+            "AAEAAAAAAAEAAAAAAAEAAAAAAgxtZGlhAAAAIG1kaGQAAAAA4ROzXOETs1wAAAJYAAAAAVXEAAAAAAA0aGRscgAA"
+            "AABtaGxybWV0YWFwcGwAAAABAAAAABNDb3JlIE1lZGlhIE1ldGFkYXRhAAABsG1pbmYAAAAgZ21oZAAAABhnbWlu"
+            "AAAAAABAgACAAIAAAAAAAAAAADhoZGxyAAAAAGRobHJhbGlzYXBwbAAAAAAAAAAAF0NvcmUgTWVkaWEgRGF0YSBI"
+            "YW5kbGVyAAAAJGRpbmYAAAAcZHJlZgAAAAAAAAABAAAADGFsaXMAAAABAAABLHN0YmwAAADIc3RzZAAAAAAAAAAB"
+            "AAAAuG1lYngAAAAAAAAAAQAAAKhrZXlzAAAASAAAAAEAAAAwa2V5ZG1kdGFjb20uYXBwbGUucXVpY2t0aW1lLnN0"
+            "aWxsLWltYWdlLXRpbWUAAAAQZHR5cAAAAAAAAABBAAAAWAAAAAIAAABAa2V5ZG1kdGFjb20uYXBwbGUucXVpY2t0"
+            "aW1lLmxpdmUtcGhvdG8tc3RpbGwtaW1hZ2UtdHJhbnNmb3JtAAAAEGR0eXAAAAAAAAAAUwAAABhzdHRzAAAAAAAA"
+            "AAEAAAABAAAAAQAAABxzdHNjAAAAAAAAAAEAAAABAAAAAQAAAAEAAAAUc3RzegAAAAAAAABZAAAAAQAAABRzdGNv"
+            "AAAAAAAAAAEAUob2"
+        ),
+        sample=decode_template(
+            "AAAACQAAAAH/AAAAUAAAAAI/8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD/wAAAAAAAAAAAAAAAAAAAA"
+            "AAAAAAAAAAAAAAAAAAAAP/AAAAAAAAA="
+        ),
+        is_live_photo_info=False,
+    ),
+)
 
 
 @dataclass(frozen=True)
@@ -110,17 +173,6 @@ def set_track_id(data: bytearray, track: Box, identifier: int) -> None:
     version = data[tkhd.data_offset]
     offset = tkhd.data_offset + (20 if version == 1 else 12)
     struct.pack_into(">I", data, offset, identifier)
-
-
-def sample_size(data: bytes | bytearray, track: Box) -> int:
-    stbl = find_descendant(data, track, (b"mdia", b"minf", b"stbl"))
-    stsz = find_child(data, stbl, b"stsz")
-    default_size, count = struct.unpack_from(">II", data, stsz.data_offset + 4)
-    if default_size:
-        return default_size * count
-
-    sizes = struct.unpack_from(f">{count}I", data, stsz.data_offset + 12)
-    return sum(sizes)
 
 
 def sample_count(data: bytes | bytearray, track: Box) -> int:
@@ -253,13 +305,6 @@ def set_live_photo_info_timing(
     set_metadata_edit_list(data, track, presentation_duration_value, leading_duration)
 
 
-def chunk_offsets(data: bytes | bytearray, track: Box) -> list[int]:
-    stbl = find_descendant(data, track, (b"mdia", b"minf", b"stbl"))
-    stco = find_child(data, stbl, b"stco")
-    count = struct.unpack_from(">I", data, stco.data_offset + 4)[0]
-    return list(struct.unpack_from(f">{count}I", data, stco.data_offset + 8))
-
-
 def set_single_chunk_offset(data: bytearray, track: Box, offset: int) -> None:
     stbl = find_descendant(data, track, (b"mdia", b"minf", b"stbl"))
     stco = find_child(data, stbl, b"stco")
@@ -290,23 +335,8 @@ def set_metadata_video_reference(data: bytearray, track: Box, video_track_id: in
     struct.pack_into(">I", data, track.offset, len(data))
 
 
-def metadata_tracks(data: bytes, moov: Box) -> list[Box]:
-    tracks = []
-    for track in child_boxes(data, moov):
-        if track.kind != b"trak":
-            continue
-        payload = data[track.offset:track.end]
-        if LIVE_PHOTO_INFO_KEY in payload or STILL_IMAGE_TIME_KEY in payload:
-            tracks.append(track)
-
-    if len(tracks) != 2:
-        raise MovPreparationError("Template must contain two Live Photo metadata tracks")
-    return tracks
-
-
 def clone_metadata_track(
-    template_data: bytes,
-    template_track: Box,
+    template: EmbeddedMetadataTrack,
     chunk_offset: int,
     identifier: int,
     video_track_id: int,
@@ -316,33 +346,18 @@ def clone_metadata_track(
     video_presentation_duration: int,
     metadata_leading_duration: int,
 ) -> tuple[bytearray, bytes]:
-    offsets = chunk_offsets(template_data, template_track)
-    if len(offsets) != 1:
-        raise MovPreparationError("Template metadata track must contain exactly one chunk")
-
-    size = sample_size(template_data, template_track)
-    sample_offset = offsets[0]
-    sample_data = template_data[sample_offset:sample_offset + size]
-    if len(sample_data) != size:
-        raise MovPreparationError("Template metadata samples extend beyond the MOV data")
-
-    clone = bytearray(template_data[template_track.offset:template_track.end])
+    clone = bytearray(template.track)
     clone_track = Box(kind=b"trak", offset=0, size=len(clone), header_size=8)
     set_track_id(clone, clone_track, identifier)
-    is_live_photo_info = LIVE_PHOTO_INFO_KEY in template_data[template_track.offset:template_track.end]
-    if is_live_photo_info:
-        if sample_count(template_data, template_track) == 0:
-            raise MovPreparationError("Template live-photo-info track has no samples")
-        payload_size = size // sample_count(template_data, template_track)
-        if payload_size * sample_count(template_data, template_track) != size:
-            raise MovPreparationError("Template live-photo-info samples must have a fixed size")
-        sample_data = sample_data[:payload_size] * video_samples
+    sample_data = template.sample
+    if template.is_live_photo_info:
+        sample_data *= video_samples
 
     clone_track = Box(kind=b"trak", offset=0, size=len(clone), header_size=8)
     set_metadata_video_reference(clone, clone_track, video_track_id)
     clone_track = Box(kind=b"trak", offset=0, size=len(clone), header_size=8)
     set_single_chunk_offset(clone, clone_track, chunk_offset)
-    if is_live_photo_info:
+    if template.is_live_photo_info:
         metadata_timescale = media_timescale(clone, clone_track)
         total_duration = round(video_media_duration * metadata_timescale / video_timescale)
         if total_duration % video_samples != 0:
@@ -501,14 +516,12 @@ def remove_ffmpeg_encoder_tag(path: Path) -> bool:
     return True
 
 
-def prepare_wallpaper_video(template_path: Path, input_path: Path, output_path: Path) -> None:
-    template_data = template_path.read_bytes()
+def prepare_wallpaper_video(input_path: Path, output_path: Path) -> None:
+    """Add the fixed Live Photo metadata template to a prepared HEVC MOV."""
     input_data = input_path.read_bytes()
-    template_moov = find_top_level(template_data, b"moov")
     input_mdat = find_top_level(input_data, b"mdat")
     input_moov = find_top_level(input_data, b"moov")
 
-    template_tracks = metadata_tracks(template_data, template_moov)
     input_moov_data = bytearray(input_data[input_moov.offset:input_moov.end])
     input_moov_box = Box(kind=b"moov", offset=0, size=len(input_moov_data), header_size=8)
     for track in reversed(child_boxes(input_moov_data, input_moov_box)):
@@ -555,9 +568,8 @@ def prepare_wallpaper_video(template_path: Path, input_path: Path, output_path: 
     cloned_tracks = []
     metadata_payloads = []
     metadata_offset = first_metadata_offset
-    for template_track in template_tracks:
+    for template_track in EMBEDDED_METADATA_TRACKS:
         clone, payload = clone_metadata_track(
-            template_data,
             template_track,
             metadata_offset,
             next_track_id,
@@ -586,15 +598,14 @@ def prepare_wallpaper_video(template_path: Path, input_path: Path, output_path: 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Inject template Live Photo metadata tracks into a MOV without transcoding video."
+        description="Inject the built-in Live Photo metadata template into a MOV without transcoding video."
     )
-    parser.add_argument("template", type=Path, help="A known working Live Photo MOV")
     parser.add_argument("input", type=Path, help="Source MOV to preserve without transcoding")
     parser.add_argument("output", type=Path, help="Prepared MOV output path")
     arguments = parser.parse_args()
 
     try:
-        prepare_wallpaper_video(arguments.template, arguments.input, arguments.output)
+        prepare_wallpaper_video(arguments.input, arguments.output)
     except (OSError, MovPreparationError) as exc:
         parser.error(str(exc))
 

@@ -7,7 +7,6 @@ This project creates `.pvt` Live Photo packages from matching image/video pairs.
 | Directory | Purpose |
 | --- | --- |
 | `input/` | Source image/video pairs. A pair must share a filename stem for this batch script; the image and video do not need to come from the same original asset or depict the same scene. These files are never modified. |
-| `reference/` | Device-verified source MOVs used only as metadata templates. They are required at runtime and are never placed in generated PVT packages. |
 | `output/` | Generated `.pvt` packages. Each package receives a fresh Live Photo content identifier. |
 
 ## Required Environment
@@ -24,9 +23,9 @@ The generator produces the following profile:
 - The cover is resampled to the input video canvas. Match input aspect ratios to avoid stretching; the current generator does not crop automatically.
 - HEVC Main through `hevc_videotoolbox`, tagged `hvc1`
 - 60 fps output at a `1/600` video timebase
-- Timed `live-photo-info`, still-image transform, and still-image time metadata cloned from a compatible MOV in `reference/`
+- Embedded timed `live-photo-info`, still-image transform, and still-image time metadata tracks extracted from a device-verified MOV
 - A `cdsc` reference from metadata tracks to the video track
-- Still-image time carried by the verified metadata template
+- Still-image time carried by the verified embedded template
 
 On the target device, the same user input failed at 30 fps and enabled Lock Screen animation at 60 fps. Treat 60 fps as a required property of this pipeline, not as a published universal iOS rule.
 

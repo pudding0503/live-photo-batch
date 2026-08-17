@@ -7,7 +7,7 @@ Use these roles consistently:
 - `input/`: source pairs. Matching stems select pairs for batch processing; the cover and motion can be independently produced and need not depict the same scene.
 - `output/`: generated PVTs only.
 
-The generator selects a compatible device-verified MOV in `reference/` at runtime and clones its Live Photo metadata tracks onto generated video. The reference's still image, video frames, and audio are not included in generated PVT packages.
+The generator embeds a metadata-only template extracted from a device-verified MOV. It contains the required Live Photo metadata tracks and samples, but no reference still image, video frames, audio, or runtime file dependency.
 
 ## Source Constraints
 
@@ -27,11 +27,11 @@ Normalize every source to constant 60 fps. A lower-rate source is timing-normali
 
 Do not impose or claim a maximum video duration: the current implementation processes the complete source duration and does not trim or apply a product-level cap. MOV container size, memory, and VideoToolbox can still impose practical technical limits. The target-device success was 2.07 seconds. Treat longer durations as uncharacterized until a fresh PVT is tested on the intended iPhone and iOS version.
 
-Clone the two-track Live Photo metadata structure from the selected reference MOV. Retain the generated video media data, add metadata-to-video `cdsc` references, and package with the pinned project `makelive` dependency using `makelive --pvt --manual`.
+Clone the two-track embedded Live Photo metadata structure. Retain the generated video media data, add metadata-to-video `cdsc` references, and package with the pinned project `makelive` dependency using `makelive --pvt --manual`.
 
 ## Still-Image Association
 
-The still-image-time metadata track selects the video timestamp used to transition from the cover into motion. Preserve the timestamp behavior from the selected verified template. Tune source cover/video alignment before changing this metadata, and change it only in an isolated device experiment.
+The still-image-time metadata track selects the video timestamp used to transition from the cover into motion. Preserve the timestamp behavior from the embedded verified template. Tune source cover/video alignment before changing this metadata, and change it only in an isolated device experiment.
 
 ## Acceptance
 
@@ -45,4 +45,4 @@ Then import each PVT into macOS Photos, sync it to the target iPhone, and confir
 
 ## Diagnostic Order
 
-When animation is unavailable, first confirm the selected reference MOV, 60 fps, HEVC Main, `hvc1`, `1/600`, and required metadata. Test a fresh UUID package on the device. Only then alter one variable at a time; do not simultaneously change cover, video, metadata, and frame rate.
+When animation is unavailable, first confirm 60 fps, HEVC Main, `hvc1`, `1/600`, and required metadata. Test a fresh UUID package on the device. Only then alter one variable at a time; do not simultaneously change cover, video, metadata, and frame rate.
