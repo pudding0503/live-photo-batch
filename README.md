@@ -1,299 +1,68 @@
 # Live Photo Batch Converter
 
-Batch convert image and video pairs into Apple Live Photo `.pvt` packages.
-
-The project uses [uv](https://docs.astral.sh/uv/) for Python project and dependency management.
-
-## Features
-
-- Scan the `input` directory automatically.
-- Match images and videos by filename.
-- Support:
-  - `.jpg`
-  - `.jpeg`
-  - `.heic`
-  - `.mov`
-  - `.mp4`
-  - Normalize temporary resources to HEIC and HEVC (`hvc1`) before packaging.
-  - Prepare each temporary MOV with a known-working Live Photo metadata template.
-- Verify the prepared package keeps the required motion metadata.
-- Store all generated packages in the `output` directory.
-- Never modify files in the `input` directory.
-- Show a progress bar with `tqdm`.
-- Report standard Live Photo and Lock Screen metadata eligibility separately.
+Create Apple Live Photo `.pvt` packages from an image and a video. The verified pipeline targets iPhone Lock Screen animated wallpapers as well as ordinary Live Photo import.
 
 ## Requirements
 
 - macOS
 - Python 3.10+
 - [uv](https://docs.astral.sh/uv/)
-- Xcode Command Line Tools (`xcrun swiftc`)
-- FFmpeg with the macOS `hevc_videotoolbox` encoder
+- Xcode Command Line Tools
+- FFmpeg with `hevc_videotoolbox`
 
-The project pins `makelive` 0.7.0 as a dependency. `uv sync` installs it into
-the project environment, so the batch script does not create a temporary `uvx`
-tool environment for every package.
-
-## Directory Structure
+## Layout
 
 ```text
-live-photo-batch/
-├── pyproject.toml
-├── uv.lock
-├── README.md
-├── make_livephotos.py
-├── prepare_wallpaper_video.py
-├── check_live_wallpaper.swift
-├── input/
-│   ├── IMG_0001.JPG
-│   ├── IMG_0001.MP4
-│   ├── IMG_0002.JPG
-│   ├── IMG_0002.MP4
-│   └── ...
-├── reference/
-│   └── WORKING_LIVE_PHOTO.MOV
-└── output/
-    ├── IMG_0001.pvt
-    ├── IMG_0002.pvt
-    └── ...
+input/      # Source .jpg/.jpeg/.heic and .mov/.mp4 pairs
+reference/  # Device-verified Live Photo metadata template MOVs
+output/     # Generated PVT packages
 ```
 
-The `input` directory contains the original image and video files.
+The generator uses the filename stem only as a batch-pairing key: `sunset.jpg` is paired with `sunset.mp4`. It does not require the image and video to come from the same original asset, camera, or scene. Use an image that is visually close to one video frame when a seamless cover-to-motion transition matters.
 
-The `output` directory contains the generated `.pvt` packages.
+The image and video do not need to originate from the same asset, but a cover that resembles a video frame gives the smoothest transition. Their pixel dimensions may differ. The cover is resampled to the video canvas, so pre-crop the source pair to matching aspect ratios when avoiding distortion matters.
 
-The script never modifies the original files in `input`.
+## Media Profile
 
-The `reference` directory must contain an exported MOV from a Live Photo that is known to enable the Lock Screen Animate control on the target iPhone. The batch script selects a compatible fixed-sample metadata template.
+| Property | Input | Generated PVT resource | Status |
+| --- | --- | --- | --- |
+| Still image format | JPEG, HEIC | HEIC | HEIC is this project's verified output choice, not a claim that every Live Photo must use HEIC. |
+| Still-image dimensions | Any dimensions | Exactly the video canvas | A higher-resolution input image is downsampled. Match the video aspect ratio to avoid stretching. |
+| Video container | MOV or MP4 | MOV | Only the primary video stream is used; audio is removed. |
+| Video codec | Any FFmpeg/VideoToolbox-decodable source | HEVC Main, `hvc1`, `yuv420p` | This exact output profile was device-verified. |
+| Frame rate | Constant or variable source rate | Constant 60 fps | 30 fps produced an ordinary Live Photo but did not enable wallpaper animation on the target device. |
+| Video timebase | Any supported source | `1/600` | At 60 fps, each output frame occupies 10 timebase units. |
+| Duration | No policy cap or automatic trim | Source duration after 60 fps normalization | No maximum wallpaper-eligible duration has been established for this project. |
+| Video resolution | Any VideoToolbox-supported source size | Source video canvas | No fixed minimum or maximum is enforced by the project. |
 
-## Installation
+The converter makes a 60 fps output from every source. A 30 fps source gains duplicated presentation frames as FFmpeg's `fps` filter normalizes timing; a source above 60 fps is sampled down to 60 fps. It preserves the video canvas, so final visual detail is limited by the source video, not by a larger cover image. HDR, 10-bit, wide-gamut preservation, and a universal maximum resolution or duration are not current project guarantees.
 
-Initialize the project:
+The generator does not apply a product-level duration cap or trim video. Container size, memory, and VideoToolbox can still impose practical technical limits. The verified target-device result is a 2.07-second source normalized to 60 fps. Treat longer durations as uncharacterized: generate a fresh PVT and test it in the target iPhone Lock Screen UI before relying on it.
 
-```
-uv sync
-```
-
-If the project has not been initialized yet:
-
-```
-uv init
-uv add tqdm
-uv sync
-```
+At runtime, the generator selects a compatible reference MOV from `reference/`, clones its timed-metadata structure onto the generated video, and packages only the generated HEIC/MOV resources. Reference media is never included in a generated PVT.
 
 ## Usage
 
-Place matching image and video files in `input`.
-
-For example:
-
-```
-input/
-├── IMG_0001.JPG
-├── IMG_0001.MP4
-├── IMG_0002.JPG
-├── IMG_0002.MP4
-└── IMG_0003.JPG
-```
-
-Run:
-
-```
+```sh
+uv sync
 uv run python make_livephotos.py
 ```
 
-To replace already-generated output packages:
+To replace existing output packages after a successful new generation:
 
-```
+```sh
 uv run python make_livephotos.py --force
 ```
 
-The script automatically creates the `output` directory if it does not exist.
+`makelive` 0.7.0 is pinned as a project dependency, so the batch script invokes the project environment directly rather than creating a temporary `uvx` tool environment for every package. Each packaging operation has a 120-second timeout; Ctrl-C exits cleanly and retains completed packages.
 
-For the following pair:
+The script never changes `input/` files. It creates an HEIC cover, converts the video to 60 fps VideoToolbox HEVC, clones the verified reference metadata structure, and writes the PVT package to `output/`. Unrelated cover/video content can package successfully, but will normally produce a visible hard transition.
 
-```
-input/IMG_0001.JPG
-input/IMG_0001.MP4
-```
+## Verify on iPhone
 
-the output will be:
+Structural checks are performed during generation, but iOS makes the final Lock Screen eligibility decision. Import each package into macOS Photos, sync it to the target iPhone, and verify that Lock Screen animation can be enabled.
 
-```
-output/IMG_0001.pvt
-```
-
-## Filename Matching
-
-The image and video must have the same filename stem.
-
-Valid:
-
-```
-IMG_0001.JPG
-IMG_0001.MP4
-```
-
-Invalid:
-
-```
-IMG_0003.JPG
-IMG_1234.MP4
-```
-
-because the filename stems do not match.
-
-## Existing Output
-
-If the corresponding `.pvt` file already exists, the script skips that pair. Pass `--force` to replace it.
-
-For example:
-
-```
-input/
-├── IMG_0001.JPG
-└── IMG_0001.MP4
-
-
-output/
-└── IMG_0001.pvt
-```
-
-`IMG_0001` will be skipped.
-
-## iOS Lock Screen Animation
-
-For each input pair, the script creates temporary resources without changing `input`:
-
-1. Convert the cover image to HEIC at the video canvas dimensions.
-2. Encode the source video stream with macOS VideoToolbox as HEVC Main, with an `hvc1` tag and a 600-unit time scale.
-3. Copy the compatible Live Photo metadata template, expand its frame metadata to the source video duration, and add `cdsc` references from metadata tracks to the video track.
-4. Package the temporary HEIC/MOV pair with `makelive` and verify the packaged MOV retains the metadata.
-
-The template and each generated package are checked for these Apple timed metadata identifiers:
-
-- `com.apple.quicktime.live-photo-info`
-- `com.apple.quicktime.live-photo-still-image-transform`
-- `com.apple.quicktime.still-image-time`
-
-The final Lock Screen decision remains with iOS, so import a regenerated package and test it on the target iPhone. Metadata and Live Photo pairing checks do not prove that iOS will enable Lock Screen animation.
-
-See [EXPERIMENTS.md](EXPERIMENTS.md) for the tested package matrix, the conclusions supported by on-device controls, and the remaining unknowns.
-
-This workflow accepts matching `.mov` or `.mp4` input. Both are normalized into a temporary MOV before `makelive` runs, so the original input files are unchanged.
-
-## Progress
-
-The script displays a progress bar while processing the files.
-
-Example:
-
-```
-Generating Live Photos: 100%|████████████████████| 6/6
-```
-
-A summary is printed after processing:
-
-```
-============================================================
-Processing complete
-============================================================
-Successful : 6
-Skipped    : 0
-Missing    : 0
-Failed     : 0
-============================================================
-```
-
-## Missing Videos
-
-If an image does not have a matching video, it is reported and skipped.
-
-Example:
-
-```
-input/
-└── IMG_0007.JPG
-```
-
-without:
-
-```
-input/IMG_0007.MP4
-```
-
-will produce:
-
-```
-Missing video: IMG_0007.JPG
-```
-
-The remaining files will continue to process.
-
-## Failed Files
-
-If `makelive` returns an error, exceeds the 120-second per-package timeout, or
-does not generate the expected `.pvt` package, the file is reported as failed.
-
-The script continues processing the remaining pairs.
-
-Pressing Ctrl-C stops the batch without a traceback. Packages completed before
-the interruption remain in `output`.
-
-## Manual Verification
-
-A single image/video pair can be checked with:
-
-```
-uv run makelive --check --manual input/IMG_0001.JPG input/IMG_0001.MP4
-```
-
-A valid Live Photo pair should produce output similar to:
-
-```
-IMG_0001.JPG and IMG_0001.MP4 are Live Photos: D7D2D912-454C-4050-B905-306D3921D10B
-```
-
-The identifier will vary between Live Photos.
-
-## Manual Conversion
-
-A single `.pvt` package can be generated with:
-
-```
-uv run makelive --pvt --manual input/IMG_0001.JPG input/IMG_0001.MP4
-```
-
-When using the batch script, the generated package is placed in `output`.
-
-## Importing into Apple Photos
-
-After processing, open the `output` directory in Finder.
-
-Double-click a `.pvt` package:
-
-```
-output/IMG_0001.pvt
-```
-
-macOS Photos should import it as a single Live Photo.
-
-After importing, verify that:
-
-- The photo appears as one item.
-- The Live Photo indicator is shown.
-- Pressing and holding the photo plays the motion portion.
-
-## Safety
-
-The script uses `makelive --pvt`.
-
-This means the original image and video files in `input` are not modified.
-
-Only `.pvt` packages are created in `output`.
-
-This makes the `input` directory suitable for keeping the original downloaded files.
+See [the compatibility rules](RULES.md) for the required media profile, validation steps, and troubleshooting.
 
 ## License
 
