@@ -14,7 +14,6 @@ Create Apple Live Photo `.pvt` packages from an image and a video. The verified 
 
 ```text
 input/      # Source .jpg/.jpeg/.heic and .mov/.mp4 pairs
-reference/  # A known-good animated Live Photo MOV metadata template
 output/     # Generated PVT packages
 ```
 
@@ -39,7 +38,7 @@ The converter makes a 60 fps output from every source. A 30 fps source gains dup
 
 The generator does not apply a product-level duration cap or trim video. Container size, memory, and VideoToolbox can still impose practical technical limits. The verified target-device result is a 2.07-second source normalized to 60 fps. Treat longer durations as uncharacterized: generate a fresh PVT and test it in the target iPhone Lock Screen UI before relying on it.
 
-Provide your own device-verified Live Photo MOV in `reference/`. The repository does not require publishing a personal or licensed reference asset.
+The working Live Photo timed-metadata structure is embedded in the generator as a metadata-only template. No reference image, video, audio, or local `reference/` directory is required at runtime.
 
 ## Usage
 
@@ -54,7 +53,7 @@ To replace existing output packages after a successful new generation:
 uv run python make_livephotos.py --force
 ```
 
-The script never changes `input/` files. It creates an HEIC cover, converts the video to 60 fps VideoToolbox HEVC, applies the working Live Photo metadata structure from `reference/`, selects the video frame closest to the cover for the still-image time, and writes the PVT package to `output/`. Unrelated cover/video content can package successfully, but will normally produce a visible hard transition.
+The script never changes `input/` files. It creates an HEIC cover, converts the video to 60 fps VideoToolbox HEVC, applies the embedded working Live Photo metadata structure, selects the video frame closest to the cover for the still-image time, and writes the PVT package to `output/`. Unrelated cover/video content can package successfully, but will normally produce a visible hard transition.
 
 ## Verify on iPhone
 

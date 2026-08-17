@@ -5,10 +5,9 @@
 Use these roles consistently:
 
 - `input/`: source pairs. Matching stems select pairs for batch processing; the cover and motion can be independently produced and need not depict the same scene.
-- `reference/`: known-good MOV used for metadata track shape and device comparison.
 - `output/`: generated PVTs only.
 
-Do not cross-pair a reference cover/video with input media. Such a package is not valid evidence for visual continuity or wallpaper eligibility. This restriction does not apply to two source files in `input/`; their visual relationship is a product decision.
+The generator embeds a fixed metadata-only template that was extracted once from a device-verified wallpaper MOV. It contains the required MOV metadata track structure and metadata samples, but no reference still image, video frames, audio, or runtime file dependency.
 
 ## Source Constraints
 
@@ -28,7 +27,7 @@ Normalize every source to constant 60 fps. A lower-rate source is timing-normali
 
 Do not impose or claim a maximum video duration: the current implementation processes the complete source duration and does not trim or apply a product-level cap. MOV container size, memory, and VideoToolbox can still impose practical technical limits. The target-device success was 2.07 seconds. Treat longer durations as uncharacterized until a fresh PVT is tested on the intended iPhone and iOS version.
 
-Copy the two Live Photo metadata tracks from the verified reference MOV. Retain the generated video media data, add metadata-to-video `cdsc` references, and package with `makelive --pvt --manual`.
+Clone the embedded two-track Live Photo metadata structure. Retain the generated video media data, add metadata-to-video `cdsc` references, and package with `makelive --pvt --manual`.
 
 ## Still-Image Association
 

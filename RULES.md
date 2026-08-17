@@ -7,14 +7,12 @@ This project creates `.pvt` Live Photo packages from matching image/video pairs.
 | Directory | Purpose |
 | --- | --- |
 | `input/` | Source image/video pairs. A pair must share a filename stem for this batch script; the image and video do not need to come from the same original asset or depict the same scene. These files are never modified. |
-| `reference/` | A Live Photo MOV known to enable Lock Screen animation on the target iPhone. It supplies metadata track structure only; never mix its still image or video content with an input pair. |
 | `output/` | Generated `.pvt` packages. Each package receives a fresh Live Photo content identifier. |
 
 ## Required Environment
 
 - macOS with `sips`, Xcode Command Line Tools, FFmpeg, and VideoToolbox HEVC support
 - Python 3.9+ and `uv`
-- A reference MOV with fixed-size `live-photo-info` samples
 
 ## Verified Output Profile
 
@@ -25,7 +23,7 @@ The generator produces the following profile:
 - Matching input cover/video aspect ratio; the current generator rejects pairs that would be visibly stretched. This is an implementation policy, not a requirement that the two inputs originate from one source.
 - HEVC Main through `hevc_videotoolbox`, tagged `hvc1`
 - 60 fps output at a `1/600` video timebase
-- `live-photo-info`, still-image transform, and still-image time metadata tracks derived from the reference MOV
+- Built-in `live-photo-info`, still-image transform, and still-image time metadata tracks, derived once from a device-verified reference MOV and containing no media samples
 - A `cdsc` reference from metadata tracks to the video track
 - Still-image time set to the video frame most similar to the final HEIC cover
 

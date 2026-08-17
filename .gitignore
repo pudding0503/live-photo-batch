@@ -182,3 +182,4 @@ cython_debug/
 .DS_Store
 /input
 /output
+/reference/

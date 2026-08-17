@@ -12,6 +12,7 @@ from pathlib import Path
 
 from prepare_wallpaper_video import (
     add_hvc1_track_aperture,
+    prepare_wallpaper_video,
     remove_ffmpeg_encoder_tag,
     set_still_image_time,
 )
@@ -26,11 +27,7 @@ except ImportError:
 ROOT = Path(__file__).resolve().parent
 INPUT_DIR = ROOT / "input"
 OUTPUT_DIR = ROOT / "output"
-REFERENCE_DIR = ROOT / "reference"
 WALLPAPER_CHECKER_SOURCE = ROOT / "check_live_wallpaper.swift"
-WALLPAPER_PREPARER = ROOT / "prepare_wallpaper_video.py"
-FIXED_LIVE_PHOTO_INFO_MARKER = b"com.apple.quicktime.live-photo-info"
-REFERENCE_DIMENSIONS_MARKER = b"live-photo-still-image-transform-reference-dimensions"
 WALLPAPER_FRAME_RATE = 60
 SSIM_SAMPLE_PATTERN = re.compile(r"(?:^|\s)n:(\d+).*?\sAll:([0-9.]+)")
 
@@ -58,34 +55,6 @@ def find_matching_video(image: Path) -> Path | None:
         ):
             if candidate.exists():
                 return candidate
-
-    return None
-
-
-def find_template_video() -> Path | None:
-    """Return a reference MOV with fixed-size live-photo-info samples."""
-    if not REFERENCE_DIR.is_dir():
-        return None
-
-    videos = sorted(
-        (
-            file
-            for file in REFERENCE_DIR.iterdir()
-            if file.is_file() and file.suffix.lower() == ".mov"
-        ),
-        key=lambda file: file.name.lower(),
-    )
-    for video in videos:
-        try:
-            data = video.read_bytes()
-        except OSError:
-            continue
-
-        if (
-            FIXED_LIVE_PHOTO_INFO_MARKER in data
-            and REFERENCE_DIMENSIONS_MARKER not in data
-        ):
-            return video
 
     return None
 
@@ -360,19 +329,6 @@ def inspect_wallpaper_metadata(checker: Path, video: Path) -> dict[str, object]:
     return json.loads(result.stdout)
 
 
-def prepare_wallpaper_video(template: Path, video: Path, prepared_video: Path) -> None:
-    """Copy template metadata tracks into a normalized temporary MOV."""
-    result = subprocess.run(
-        [sys.executable, str(WALLPAPER_PREPARER), str(template), str(video), str(prepared_video)],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or "wallpaper MOV preparation failed")
-
-
 def main() -> None:
     arguments = parse_arguments()
 
@@ -387,15 +343,6 @@ def main() -> None:
 
     if not INPUT_DIR.is_dir():
         print(f"Error: input directory not found: {INPUT_DIR}")
-        sys.exit(1)
-
-    if not WALLPAPER_PREPARER.is_file():
-        print(f"Error: wallpaper preparer not found: {WALLPAPER_PREPARER}")
-        sys.exit(1)
-
-    template_video = find_template_video()
-    if template_video is None:
-        print(f"Error: no compatible reference MOV found in {REFERENCE_DIR}")
         sys.exit(1)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -423,15 +370,6 @@ def main() -> None:
         sys.exit(1)
     atexit.register(shutil.rmtree, helper_directory, ignore_errors=True)
 
-    try:
-        template_report = inspect_wallpaper_metadata(wallpaper_checker, template_video)
-    except RuntimeError as exc:
-        print(f"Error: could not inspect reference MOV: {exc}")
-        sys.exit(1)
-    if not bool(template_report["wallpaperMetadataPresent"]):
-        print(f"Error: reference MOV does not contain required wallpaper metadata: {template_video}")
-        sys.exit(1)
-
     success = []
     skipped = []
     missing = []
@@ -440,7 +378,6 @@ def main() -> None:
 
     print(f"Input : {INPUT_DIR}")
     print(f"Output: {OUTPUT_DIR}")
-    print(f"Template: {template_video}")
     print(f"Found {len(images)} image(s)")
     print()
 
@@ -469,7 +406,7 @@ def main() -> None:
             prepare_hevc_video(video, hevc_video)
             prepare_cover_image(image, prepared_image, width, height)
             association_time = best_still_image_time(prepared_image, hevc_video, helper_directory)
-            prepare_wallpaper_video(template_video, hevc_video, prepared_video)
+            prepare_wallpaper_video(hevc_video, prepared_video)
             prepared_report = inspect_wallpaper_metadata(wallpaper_checker, prepared_video)
         except RuntimeError as exc:
             failed.append(image.name)
