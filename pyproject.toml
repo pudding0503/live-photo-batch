@@ -1,0 +1,12 @@
+[project]
+name = "live-photo-batch"
+version = "0.1.0"
+description = "Batch convert image and video pairs into Apple Live Photo PVT packages"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "tqdm>=4.67.0",
+]
+
+[tool.uv]
+package = false
