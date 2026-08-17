@@ -59,7 +59,7 @@ To replace existing output packages after a successful new generation:
 uv run python make_livephotos.py --force
 ```
 
-`makelive` 0.7.0 is pinned as a project dependency, so the batch script invokes the project environment directly rather than creating a temporary `uvx` tool environment for every package. Each packaging operation has a 120-second timeout; Ctrl-C exits cleanly and retains completed packages.
+`makelive` 0.7.0 is pinned as a project dependency, so the batch script invokes the project environment directly rather than creating a temporary `uvx` tool environment for every package. Each packaging operation has a 120-second timeout. A single interrupt resumes unfinished packages; press Ctrl-C again within two seconds to exit and retain completed packages.
 
 The script never changes `input/` files. It creates an HEIC cover, converts the video to 60 fps VideoToolbox HEVC, applies the embedded verified metadata structure, and writes the PVT package to `output/`. Unrelated cover/video content can package successfully, but will normally produce a visible hard transition.
 

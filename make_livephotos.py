@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 from prepare_wallpaper_video import (
     add_hvc1_track_aperture,
@@ -427,9 +428,26 @@ def main() -> None:
     print("=" * 60)
 
 
+def run() -> int:
+    """Resume after one transient terminal interrupt; require a second to stop."""
+    previous_interrupt: float | None = None
+
+    while True:
+        try:
+            main()
+            return 0
+        except KeyboardInterrupt:
+            now = time.monotonic()
+            if previous_interrupt is not None and now - previous_interrupt <= 2:
+                print("\nInterrupted. Existing completed packages were retained.")
+                return 130
+
+            previous_interrupt = now
+            print(
+                "\nInterrupted. Resuming unfinished packages. "
+                "Press Ctrl-C again within 2 seconds to stop."
+            )
+
+
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print("\nInterrupted. Existing completed packages were retained.")
-        sys.exit(130)
+    sys.exit(run())
