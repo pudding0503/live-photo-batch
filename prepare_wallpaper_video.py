@@ -364,6 +364,143 @@ def update_next_track_id(moov: bytearray, identifier: int) -> None:
     struct.pack_into(">I", moov, mvhd.end - 4, identifier)
 
 
+def strip_hvc1_prefix_sei(path: Path) -> bool:
+    """Remove x265 Prefix SEI configuration data from an hvc1 MOV sample entry."""
+    data = bytearray(path.read_bytes())
+    moov = find_top_level(data, b"moov")
+    mdat = find_top_level(data, b"mdat")
+    if moov.offset < mdat.offset:
+        raise MovPreparationError("HEVC cleanup requires an mdat-before-moov MOV")
+
+    video_track = next(
+        (
+            track
+            for track in child_boxes(data, moov)
+            if track.kind == b"trak" and b"vide" in data[track.offset:track.end]
+        ),
+        None,
+    )
+    if video_track is None:
+        raise MovPreparationError("MOV does not contain a video track")
+
+    stbl = find_descendant(data, video_track, (b"mdia", b"minf", b"stbl"))
+    stsd = find_child(data, stbl, b"stsd")
+    entry_offset = stsd.data_offset + 8
+    entry_size, entry_kind = struct.unpack_from(">I4s", data, entry_offset)
+    if entry_kind != b"hvc1":
+        raise MovPreparationError("HEVC cleanup requires an hvc1 video track")
+
+    entry_end = entry_offset + entry_size
+    type_offset = data.find(b"hvcC", entry_offset, entry_end)
+    if type_offset < 4:
+        raise MovPreparationError("hvc1 sample entry is missing hvcC")
+    box_offset = type_offset - 4
+    box_size = struct.unpack_from(">I", data, box_offset)[0]
+    if box_size < 31 or box_offset + box_size > entry_end:
+        raise MovPreparationError("Invalid hvcC box size")
+
+    config = data[type_offset + 4:box_offset + box_size]
+    array_count = config[22]
+    cursor = 23
+    retained_arrays = []
+    removed = False
+    for _ in range(array_count):
+        array_start = cursor
+        if cursor + 3 > len(config):
+            raise MovPreparationError("Truncated hvcC array header")
+        array_type = config[cursor] & 0x3F
+        nal_count = struct.unpack_from(">H", config, cursor + 1)[0]
+        cursor += 3
+        for _ in range(nal_count):
+            if cursor + 2 > len(config):
+                raise MovPreparationError("Truncated hvcC NAL size")
+            nal_size = struct.unpack_from(">H", config, cursor)[0]
+            cursor += 2 + nal_size
+            if cursor > len(config):
+                raise MovPreparationError("Truncated hvcC NAL payload")
+        if array_type == 39:
+            removed = True
+        else:
+            retained_arrays.append(config[array_start:cursor])
+
+    if cursor != len(config):
+        raise MovPreparationError("Unexpected trailing hvcC data")
+    if not removed:
+        return False
+
+    replacement_config = config[:22] + bytes([len(retained_arrays)]) + b"".join(retained_arrays)
+    replacement_box = struct.pack(">I4s", len(replacement_config) + 8, b"hvcC") + replacement_config
+    delta = len(replacement_box) - box_size
+    struct.pack_into(">I", data, entry_offset, entry_size + delta)
+    for box in (moov, video_track, find_child(data, video_track, b"mdia"), find_descendant(data, video_track, (b"mdia", b"minf")), stbl, stsd):
+        if box.header_size != 8:
+            raise MovPreparationError("Extended-size HEVC boxes are not supported")
+        struct.pack_into(">I", data, box.offset, box.size + delta)
+    data[box_offset:box_offset + box_size] = replacement_box
+    path.write_bytes(data)
+    return True
+
+
+def add_hvc1_track_aperture(path: Path) -> bool:
+    """Add the QuickTime clean, production, and encoded-pixel apertures."""
+    data = bytearray(path.read_bytes())
+    moov = find_top_level(data, b"moov")
+    mdat = find_top_level(data, b"mdat")
+    if moov.offset < mdat.offset:
+        raise MovPreparationError("HEVC aperture cleanup requires an mdat-before-moov MOV")
+
+    video_track = next(
+        (
+            track
+            for track in child_boxes(data, moov)
+            if track.kind == b"trak" and b"vide" in data[track.offset:track.end]
+        ),
+        None,
+    )
+    if video_track is None:
+        raise MovPreparationError("MOV does not contain a video track")
+    if any(child.kind == b"tapt" for child in child_boxes(data, video_track)):
+        return False
+
+    tkhd = find_child(data, video_track, b"tkhd")
+    width, height = struct.unpack_from(">II", data, tkhd.end - 8)
+    aperture_children = b"".join(
+        struct.pack(">I4sIII", 20, kind, 0, width, height)
+        for kind in (b"clef", b"prof", b"enof")
+    )
+    aperture = struct.pack(">I4s", len(aperture_children) + 8, b"tapt") + aperture_children
+    data[tkhd.end:tkhd.end] = aperture
+    struct.pack_into(">I", data, video_track.offset, video_track.size + len(aperture))
+    struct.pack_into(">I", data, moov.offset, moov.size + len(aperture))
+    path.write_bytes(data)
+    return True
+
+
+def remove_ffmpeg_encoder_tag(path: Path) -> bool:
+    """Remove the non-native Lavf software tag added by FFmpeg's MOV muxer."""
+    data = bytearray(path.read_bytes())
+    moov = find_top_level(data, b"moov")
+    mdat = find_top_level(data, b"mdat")
+    if moov.offset < mdat.offset:
+        raise MovPreparationError("HEVC metadata cleanup requires an mdat-before-moov MOV")
+
+    encoder_tag = next(
+        (
+            box
+            for box in child_boxes(data, moov)
+            if box.kind == b"udta" and b"Lavf" in data[box.offset:box.end]
+        ),
+        None,
+    )
+    if encoder_tag is None:
+        return False
+
+    del data[encoder_tag.offset:encoder_tag.end]
+    struct.pack_into(">I", data, moov.offset, moov.size - encoder_tag.size)
+    path.write_bytes(data)
+    return True
+
+
 def prepare_wallpaper_video(template_path: Path, input_path: Path, output_path: Path) -> None:
     template_data = template_path.read_bytes()
     input_data = input_path.read_bytes()
@@ -374,10 +511,23 @@ def prepare_wallpaper_video(template_path: Path, input_path: Path, output_path: 
     template_tracks = metadata_tracks(template_data, template_moov)
     input_moov_data = bytearray(input_data[input_moov.offset:input_moov.end])
     input_moov_box = Box(kind=b"moov", offset=0, size=len(input_moov_data), header_size=8)
+    for track in reversed(child_boxes(input_moov_data, input_moov_box)):
+        if track.kind != b"trak":
+            continue
+        payload = input_moov_data[track.offset:track.end]
+        if LIVE_PHOTO_INFO_KEY in payload or STILL_IMAGE_TIME_KEY in payload:
+            del input_moov_data[track.offset:track.end]
+    struct.pack_into(">I", input_moov_data, 0, len(input_moov_data))
+    input_moov_box = Box(kind=b"moov", offset=0, size=len(input_moov_data), header_size=8)
     input_tracks = [
         track for track in child_boxes(input_moov_data, input_moov_box) if track.kind == b"trak"
     ]
-    input_video_track = input_tracks[0]
+    input_video_track = next(
+        (track for track in input_tracks if b"vide" in input_moov_data[track.offset:track.end]),
+        None,
+    )
+    if input_video_track is None:
+        raise MovPreparationError("Input MOV does not contain a video track")
     next_track_id = max(track_id(input_moov_data, track) for track in input_tracks) + 1
     video_track_id = track_id(input_moov_data, input_video_track)
     video_samples = sample_count(input_moov_data, input_video_track)

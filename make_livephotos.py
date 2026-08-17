@@ -7,6 +7,11 @@ import subprocess
 import sys
 import tempfile
 
+from prepare_wallpaper_video import (
+    add_hvc1_track_aperture,
+    remove_ffmpeg_encoder_tag,
+)
+
 try:
     from tqdm import tqdm
 except ImportError:
@@ -119,6 +124,8 @@ def prepare_cover_image(image: Path, destination: Path, width: int, height: int)
     result = subprocess.run(
         [
             "sips",
+            "-d",
+            "description",
             "-s",
             "format",
             "heic",
@@ -139,7 +146,7 @@ def prepare_cover_image(image: Path, destination: Path, width: int, height: int)
 
 
 def prepare_hevc_video(video: Path, destination: Path) -> None:
-    """Create an hvc1 HEVC MOV with a fixed 600-unit video timescale."""
+    """Create a VideoToolbox HEVC Main MOV with a 600-unit video timescale."""
     result = subprocess.run(
         [
             "ffmpeg",
@@ -152,17 +159,17 @@ def prepare_hevc_video(video: Path, destination: Path) -> None:
             "0:v:0",
             "-an",
             "-c:v",
-            "libx265",
+            "hevc_videotoolbox",
             "-profile:v",
             "main",
             "-pix_fmt",
             "yuv420p",
+            "-q:v",
+            "65",
             "-tag:v",
             "hvc1",
             "-video_track_timescale",
             "600",
-            "-x265-params",
-            "log-level=error",
             str(destination),
         ],
         stdout=subprocess.PIPE,
@@ -172,6 +179,9 @@ def prepare_hevc_video(video: Path, destination: Path) -> None:
     )
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or "HEVC video preparation failed")
+
+    add_hvc1_track_aperture(destination)
+    remove_ffmpeg_encoder_tag(destination)
 
 
 def compile_wallpaper_checker(directory: Path) -> Path:

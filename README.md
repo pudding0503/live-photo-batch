@@ -28,7 +28,7 @@ The project uses [uv](https://docs.astral.sh/uv/) for Python project and depende
 - Python 3.9+
 - [uv](https://docs.astral.sh/uv/)
 - Xcode Command Line Tools (`xcrun swiftc`)
-- FFmpeg with `libx265`
+- FFmpeg with the macOS `hevc_videotoolbox` encoder
 
 `makelive` is executed through `uvx`, so it does not need to be installed manually.
 
@@ -165,7 +165,7 @@ output/
 For each input pair, the script creates temporary resources without changing `input`:
 
 1. Convert the cover image to HEIC at the video canvas dimensions.
-2. Encode the source video stream as HEVC Main with an `hvc1` tag and a 600-unit time scale.
+2. Encode the source video stream with macOS VideoToolbox as HEVC Main, with an `hvc1` tag and a 600-unit time scale.
 3. Copy the compatible Live Photo metadata template, expand its frame metadata to the source video duration, and add `cdsc` references from metadata tracks to the video track.
 4. Package the temporary HEIC/MOV pair with `makelive` and verify the packaged MOV retains the metadata.
 
@@ -176,6 +176,8 @@ The template and each generated package are checked for these Apple timed metada
 - `com.apple.quicktime.still-image-time`
 
 The final Lock Screen decision remains with iOS, so import a regenerated package and test it on the target iPhone. Metadata and Live Photo pairing checks do not prove that iOS will enable Lock Screen animation.
+
+See [EXPERIMENTS.md](EXPERIMENTS.md) for the tested package matrix, the conclusions supported by on-device controls, and the remaining unknowns.
 
 This workflow accepts matching `.mov` or `.mp4` input. Both are normalized into a temporary MOV before `makelive` runs, so the original input files are unchanged.
 
