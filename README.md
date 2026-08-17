@@ -47,6 +47,12 @@ uv sync
 uv run python make_livephotos.py
 ```
 
+After activating the project environment, the equivalent direct command is:
+
+```sh
+python make_livephotos.py
+```
+
 To replace existing output packages after a successful new generation:
 
 ```sh

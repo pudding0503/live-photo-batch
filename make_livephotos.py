@@ -55,6 +55,14 @@ def find_matching_video(image: Path) -> Path | None:
     return None
 
 
+def find_makelive() -> str | None:
+    """Find the packager in the active virtual environment before PATH."""
+    environment_command = Path(sys.executable).with_name("makelive")
+    if environment_command.is_file():
+        return str(environment_command)
+    return shutil.which("makelive")
+
+
 def video_dimensions(video: Path) -> tuple[int, int]:
     """Return the primary video stream's width and height."""
     result = subprocess.run(
@@ -207,7 +215,8 @@ def prepare_wallpaper_video(video: Path, prepared_video: Path) -> None:
 def main() -> None:
     arguments = parse_arguments()
 
-    if shutil.which("makelive") is None:
+    makelive = find_makelive()
+    if makelive is None:
         print("Error: makelive 0.7.0 was not found in PATH.")
         print("Run `uv sync` before running this script.")
         sys.exit(1)
@@ -306,7 +315,7 @@ def main() -> None:
         prepared.append(image.name)
 
         command = [
-            "makelive",
+            makelive,
             "--pvt",
             "--manual",
             str(prepared_image),
