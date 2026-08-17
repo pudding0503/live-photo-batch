@@ -27,6 +27,7 @@ WALLPAPER_CHECKER_SOURCE = ROOT / "check_live_wallpaper.swift"
 WALLPAPER_PREPARER = ROOT / "prepare_wallpaper_video.py"
 FIXED_LIVE_PHOTO_INFO_MARKER = b"com.apple.quicktime.live-photo-info"
 REFERENCE_DIMENSIONS_MARKER = b"live-photo-still-image-transform-reference-dimensions"
+WALLPAPER_FRAME_RATE = 60
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -146,7 +147,7 @@ def prepare_cover_image(image: Path, destination: Path, width: int, height: int)
 
 
 def prepare_hevc_video(video: Path, destination: Path) -> None:
-    """Create a VideoToolbox HEVC Main MOV with a 600-unit video timescale."""
+    """Create a 60 fps VideoToolbox HEVC Main MOV with a 600-unit timescale."""
     result = subprocess.run(
         [
             "ffmpeg",
@@ -158,6 +159,8 @@ def prepare_hevc_video(video: Path, destination: Path) -> None:
             "-map",
             "0:v:0",
             "-an",
+            "-vf",
+            f"fps={WALLPAPER_FRAME_RATE}:round=near",
             "-c:v",
             "hevc_videotoolbox",
             "-profile:v",
