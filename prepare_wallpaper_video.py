@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import struct
 from dataclasses import dataclass
 from pathlib import Path
-import struct
-
 
 CONTAINER_TYPES = {b"moov", b"trak", b"mdia", b"minf", b"stbl", b"edts", b"dinf", b"udta"}
 LIVE_PHOTO_INFO_KEY = b"com.apple.quicktime.live-photo-info"
@@ -207,6 +206,54 @@ def movie_timescale(data: bytes | bytearray, moov: Box) -> int:
     version = data[mvhd.data_offset]
     offset = mvhd.data_offset + (20 if version == 1 else 12)
     return struct.unpack_from(">I", data, offset)[0]
+
+
+def set_still_image_time(path: Path, seconds: float) -> None:
+    """Point the packaged still-image-time track at a presentation timestamp."""
+    if seconds < 0:
+        raise MovPreparationError("Still-image time must not be negative")
+
+    data = bytearray(path.read_bytes())
+    moov = find_top_level(data, b"moov")
+    track = next(
+        (
+            candidate
+            for candidate in child_boxes(data, moov)
+            if candidate.kind == b"trak"
+            and STILL_IMAGE_TIME_KEY in data[candidate.offset:candidate.end]
+        ),
+        None,
+    )
+    if track is None:
+        raise MovPreparationError("MOV does not contain a still-image-time track")
+
+    edts = find_child(data, track, b"edts")
+    elst = find_child(data, edts, b"elst")
+    version = data[elst.data_offset]
+    count = struct.unpack_from(">I", data, elst.data_offset + 4)[0]
+    if count != 2:
+        raise MovPreparationError("Still-image-time track must contain a two-entry edit list")
+
+    entry_offset = elst.data_offset + 8
+    entry_size = 20 if version == 1 else 12
+    second_offset = entry_offset + entry_size
+    movie_scale = movie_timescale(data, moov)
+    leading_duration = round(seconds * movie_scale)
+
+    if version == 1:
+        _, first_media_time = struct.unpack_from(">Qq", data, entry_offset)
+        sample_duration, second_media_time = struct.unpack_from(">Qq", data, second_offset)
+        struct.pack_into(">Q", data, entry_offset, leading_duration)
+    else:
+        _, first_media_time = struct.unpack_from(">Ii", data, entry_offset)
+        sample_duration, second_media_time = struct.unpack_from(">Ii", data, second_offset)
+        struct.pack_into(">I", data, entry_offset, leading_duration)
+
+    if first_media_time != -1 or second_media_time < 0:
+        raise MovPreparationError("Unexpected still-image-time edit list")
+
+    set_track_duration(data, track, leading_duration + sample_duration)
+    path.write_bytes(data)
 
 
 def set_metadata_edit_list(data: bytearray, track: Box, duration: int, leading_duration: int) -> None:

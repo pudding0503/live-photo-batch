@@ -1,0 +1,4 @@
+interface:
+  display_name: "Live Photo Wallpaper"
+  short_description: "Create iOS animated Live Photo wallpapers"
+  default_prompt: "Use $live-photo-wallpaper to generate and validate iOS Live Photo wallpapers from matched still and video pairs."
