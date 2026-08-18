@@ -6,7 +6,7 @@ This project creates `.pvt` Live Photo packages from matching image/video pairs.
 
 | Directory | Purpose |
 | --- | --- |
-| `input/` | Source image/video pairs. A pair must share a filename stem for this batch script; the image and video do not need to come from the same original asset or depict the same scene. These files are never modified. |
+| `input/` | Source image/video pairs. A pair must share a filename stem. The generator can package arbitrary pairs, but Lock Screen eligibility requires a cover visually continuous with the transition video frame. These files are never modified. |
 | `output/` | Generated `.pvt` packages. Each package receives a fresh Live Photo content identifier. |
 
 ## Required Environment
@@ -29,13 +29,32 @@ The generator produces the following profile:
 
 On the target device, the same user input failed at 30 fps and enabled Lock Screen animation at 60 fps. Treat 60 fps as a required property of this pipeline, not as a published universal iOS rule.
 
+## Target-Device Evidence
+
+These observations apply to the iPhone and iOS version used to validate this repository. They are implementation evidence, not a public Apple compatibility specification.
+
+| Control | Lock Screen result | Interpretation |
+| --- | --- | --- |
+| 30 fps video with otherwise valid Live Photo pairing | Unavailable | The package can import as a Live Photo, but this profile requires 60 fps for wallpaper animation. |
+| 60 fps HEVC Main, `hvc1`, `1/600`, and verified timed metadata | Available | This is the baseline output profile. |
+| 1.87-second video with a cover decoded from its opening frame | Available | The tested duration range is at least 1.87 to 2.67 seconds; no maximum is known. |
+| Visually mismatched cover and opening video frame | Unavailable | Resource continuity is an eligibility condition, not only a transition-quality concern. |
+| The mismatched pair after color, wide-gamut, and sample-aspect-ratio experiments | Unavailable | Do not treat color normalization or SAR removal as a substitute for a frame-aligned cover. |
+| The same video with only its cover replaced by the decoded opening frame | Available | Use this as the first isolation control when a structurally valid package cannot animate. |
+
 ## Input Flexibility And Limits
 
 ### Image and video relationship
 
-The filename is the pairing mechanism, not an assertion of provenance. `cover.jpg` with `cover.mp4` can be assembled even when they are independently produced or show different subjects. The Live Photo format does not use a same-source relationship as a validation key in this pipeline.
+The filename is the pairing mechanism, not an assertion of provenance. `cover.jpg` with `cover.mp4` can be assembled even when the resources are independently produced. That describes PVT packaging only, not target-device Lock Screen eligibility.
 
-For a smooth transition, choose a cover that matches a video frame. When the cover and video are unrelated, the package may still import and qualify, but the transition will look like a cut.
+For iOS Lock Screen animation, use a cover that depicts the same scene and closely matches the frame selected for the transition. The most reliable method is to extract the first displayed video frame as the cover. A nearby frame from the same shot is acceptable only after device testing. Do not claim that unrelated content qualifies for animated wallpaper.
+
+### Cover-to-motion continuity
+
+This is a target-device eligibility condition, not just a visual-quality preference. In a controlled test, an otherwise valid P3 package with a visually different cover and video opening frame failed to enable animation. Replacing only that cover with the decoded opening video frame enabled animation. Color normalization, explicit sample-aspect-ratio removal, and the same structural metadata did not repair the mismatched-cover package.
+
+No universal SSIM or pixel-difference threshold is known. Do not invent one. When eligibility matters, derive the cover from the video frame that should lead into motion and test the resulting fresh PVT on the intended iPhone.
 
 ### HEIC, JPEG, and dimensions
 
@@ -49,11 +68,13 @@ There is no project-enforced minimum or maximum resolution. The output video ret
 
 The output video is 8-bit `yuv420p` HEVC Main. It is designed for the verified compatibility profile, not as an HDR, 10-bit, or wide-gamut preservation workflow. Do not promise that those source properties survive conversion without a dedicated device test.
 
+The successful aligned-cover control retained Display P3 cover/video resources, so P3 is not established as a standalone wallpaper blocker. Do not normalize color as a substitute for cover-to-motion continuity.
+
 ### Frame rate and duration
 
 Every generated video is normalized to constant 60 fps. A 30 fps source gains duplicated presentation frames through FFmpeg timing normalization; footage above 60 fps is sampled down. The 60 fps output uses a `1/600` timebase, so each frame has a 10-unit duration.
 
-The generator does not trim input video or apply a product-level duration cap. It writes metadata samples for the complete normalized video, although MOV container size, memory, and VideoToolbox may impose practical technical limits. The target-device success was a 2.07-second input; a project-wide longest supported duration has not been measured. Do not state a maximum duration in public documentation until it has been tested on the intended iPhone and iOS version.
+The generator does not trim input video or apply a product-level duration cap. It writes metadata samples for the complete normalized video, although MOV container size, memory, and VideoToolbox may impose practical technical limits. Target-device successes currently span 1.87 to 2.67 seconds. A project-wide longest supported duration has not been measured. Do not state a maximum duration in public documentation until it has been tested on the intended iPhone and iOS version.
 
 ## Generate Packages
 
@@ -72,7 +93,7 @@ For every package, the generator verifies that the packaged MOV exposes:
 - `com.apple.quicktime.live-photo-still-image-transform`
 - `com.apple.quicktime.still-image-time`
 
-It also relies on `makelive` to create a valid PVT pairing. These checks are necessary structural diagnostics, not proof of Lock Screen eligibility.
+It also relies on `makelive` to create a valid PVT pairing. These checks cannot assess cover-to-video visual continuity, so they are necessary structural diagnostics, not proof of Lock Screen eligibility.
 
 ## Device Acceptance
 
@@ -88,6 +109,6 @@ Use a new package for each device test so Photos cannot deduplicate by content i
 | Symptom | Action |
 | --- | --- |
 | The cover is stretched | Crop the source image and video to the same aspect ratio before running the generator. |
-| Photos imports a Live Photo but Lock Screen animation is unavailable | Verify the output is 60 fps HEVC `hvc1` with the expected metadata tracks, then retest with a fresh package. |
-| The cover jumps when motion starts | Choose a cover that matches the desired opening video frame. Do not change encoding or metadata structure while tuning source media. |
+| Photos imports a Live Photo but Lock Screen animation is unavailable | First replace the cover with the decoded opening video frame and test a fresh PVT. If it succeeds, the source cover was not visually continuous enough for wallpaper eligibility. Otherwise verify 60 fps HEVC `hvc1` and the expected metadata tracks. |
+| The cover jumps when motion starts | Use the decoded opening video frame, or a nearby frame from the same shot, as the cover. Do not change encoding or metadata structure while tuning source media. |
 | `--force` generation fails | Regenerate after inspecting the reported per-file error; the prior PVT may already have been removed. |
