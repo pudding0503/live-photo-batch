@@ -19,7 +19,11 @@ output/     # Generated PVT packages
 
 The filename stem is only the batch-pairing key: `sunset.jpg` is paired with `sunset.mp4`. The generator can assemble arbitrary still/video resources into an ordinary Live Photo, but that does not establish Lock Screen eligibility. For the target iPhone, the cover must depict the same scene and closely match the video frame at the intended transition point. Extracting the cover from the video opening frame is the most reliable choice.
 
-The still and video may have different pixel dimensions and do not need to be exported from one original asset, provided they remain visually continuous at the transition. The cover is resampled to the video canvas, so pre-crop the source pair to matching aspect ratios when avoiding distortion matters.
+The still and video may have different pixel dimensions and do not need to be exported from one original asset, provided they remain visually continuous at the transition. In wallpaper mode, an explicitly selected input cover is resampled to the video canvas, so pre-crop the source pair to matching aspect ratios when avoiding distortion matters. Album mode keeps the original resources.
+
+By default, the generator extracts the opening frame from the normalized video and uses that frame as the HEIC cover. The matched input image remains the pairing key, but is not used as the wallpaper cover unless explicitly requested. Use `--use-input-cover` only when preserving the supplied still is more important than target-device wallpaper eligibility or when running an isolated experiment.
+
+The `wallpaper` mode is the default. Use `--mode album` when you only need Photos to recognize an ordinary Live Photo: it passes the original JPG/HEIC and MP4/MOV to `makelive` without transcoding or replacing the cover. Album mode may import and play normally but is not guaranteed to qualify as an animated Lock Screen wallpaper.
 
 ## Media Profile
 
@@ -60,9 +64,29 @@ To replace existing output packages after a successful new generation:
 uv run python make_livephotos.py --force
 ```
 
+To create ordinary Live Photos from the original resources:
+
+```sh
+uv run python make_livephotos.py --mode album
+```
+
+To preserve the matched input image as the cover:
+
+```sh
+uv run python make_livephotos.py --use-input-cover
+```
+
+Select the target iPhone label for the run report:
+
+```sh
+uv run python make_livephotos.py --target-device iphone-16
+```
+
+The device list is configuration only. All currently listed models use the same verified wallpaper profile; only `target` is marked as device-tested in this repository. Add or rename entries in `live_photo_config.py`; selecting a model currently changes the report label, not the media encoding.
+
 `makelive` 0.7.0 is pinned as a project dependency, so the batch script invokes the project environment directly rather than creating a temporary `uvx` tool environment for every package. Each packaging operation has a 120-second timeout. A single interrupt resumes unfinished packages; press Ctrl-C again within two seconds to exit and retain completed packages.
 
-The script never changes `input/` files. It creates an HEIC cover, converts the video to 60 fps VideoToolbox HEVC, applies the embedded verified metadata structure, and writes the PVT package to `output/`. It does not measure visual continuity, so choose a cover from the opening video frame or a nearby matching frame before generation when Lock Screen animation matters.
+The script never changes `input/` files. Wallpaper mode converts the video to 60 fps VideoToolbox HEVC, extracts the normalized opening frame as the default HEIC cover, applies the embedded verified metadata structure, and writes the PVT package to `output/`. Album mode preserves the original still/video resources and delegates ordinary packaging to `makelive`. The optional input-cover path does not measure visual continuity and may produce an ordinary Live Photo that cannot be selected as an animated wallpaper.
 
 ## Verify on iPhone
 

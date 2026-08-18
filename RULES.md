@@ -6,7 +6,7 @@ This project creates `.pvt` Live Photo packages from matching image/video pairs.
 
 | Directory | Purpose |
 | --- | --- |
-| `input/` | Source image/video pairs. A pair must share a filename stem. The generator can package arbitrary pairs, but Lock Screen eligibility requires a cover visually continuous with the transition video frame. These files are never modified. |
+| `input/` | Source image/video pairs. A pair must share a filename stem. The image selects the pair and remains available as an optional cover; the default wallpaper cover comes from the normalized video opening frame. These files are never modified. |
 | `output/` | Generated `.pvt` packages. Each package receives a fresh Live Photo content identifier. |
 
 ## Required Environment
@@ -14,13 +14,26 @@ This project creates `.pvt` Live Photo packages from matching image/video pairs.
 - macOS with `sips`, Xcode Command Line Tools, FFmpeg, and VideoToolbox HEVC support
 - Python 3.10+ and `uv`
 
+## Package Modes
+
+| Mode | Cover | Video | Intended result |
+| --- | --- | --- | --- |
+| `wallpaper` (default) | Opening frame of the normalized 60 fps video, converted to HEIC | VideoToolbox HEVC Main, `hvc1`, 60 fps, `1/600`, embedded wallpaper metadata | Target-device Lock Screen animation profile |
+| `album` | Original JPG/HEIC | Original MP4/MOV | Ordinary Live Photo import/playback; wallpaper eligibility is not guaranteed |
+
+`--use-input-cover` is a wallpaper-mode diagnostic/compatibility override. It preserves the matched still but can recreate the cover/video mismatch that prevents Lock Screen animation.
+
+## Target Device Selection
+
+Use `--target-device` to select a label from `live_photo_config.py`. The selection is printed in the run report and is intended to organize device testing. Add or rename entries in that tuple when maintaining a device list. It does not currently change encoding parameters: all listed models use the same verified wallpaper profile, and only `target` is marked device-tested in this repository. Add a model-specific profile only after an isolated real-device experiment.
+
 ## Verified Output Profile
 
 The generator produces the following profile:
 
-- HEIC cover at the input video canvas dimensions. HEIC is the project's verified output format, rather than a claim that it is universally required for every Live Photo.
-- JPEG, HEIC, and differently sized input still images are accepted. The generator resamples the cover to the video canvas.
-- The cover is resampled to the input video canvas. Match input aspect ratios to avoid stretching; the current generator does not crop automatically.
+- HEIC cover at the input video canvas dimensions. By default it is extracted from the normalized video's opening frame. HEIC is the project's verified output format, rather than a claim that it is universally required for every Live Photo.
+- JPEG, HEIC, and differently sized input still images are accepted as pairing inputs and as an explicit optional cover. The default wallpaper path does not use their pixels.
+- The generated cover is resampled to the input video canvas. Match input aspect ratios when using `--use-input-cover` to avoid stretching; the current generator does not crop automatically.
 - HEVC Main through `hevc_videotoolbox`, tagged `hvc1`
 - 60 fps output at a `1/600` video timebase
 - Embedded timed `live-photo-info`, still-image transform, and still-image time metadata tracks extracted from a device-verified MOV
@@ -48,7 +61,7 @@ These observations apply to the iPhone and iOS version used to validate this rep
 
 The filename is the pairing mechanism, not an assertion of provenance. `cover.jpg` with `cover.mp4` can be assembled even when the resources are independently produced. That describes PVT packaging only, not target-device Lock Screen eligibility.
 
-For iOS Lock Screen animation, use a cover that depicts the same scene and closely matches the frame selected for the transition. The most reliable method is to extract the first displayed video frame as the cover. A nearby frame from the same shot is acceptable only after device testing. Do not claim that unrelated content qualifies for animated wallpaper.
+For iOS Lock Screen animation, use a cover that depicts the same scene and closely matches the frame selected for the transition. The default script path extracts the normalized video's opening frame automatically. A nearby frame from the same shot is acceptable only after device testing. Do not claim that unrelated content qualifies for animated wallpaper.
 
 ### Cover-to-motion continuity
 
@@ -83,7 +96,7 @@ uv sync
 uv run python make_livephotos.py
 ```
 
-Use `--force` to regenerate existing packages. The existing package is removed before replacement, so keep a copy when it is valuable.
+The default command uses wallpaper mode and the normalized video opening frame as the cover. Use `--mode album` for original JPG/MP4 packaging, `--use-input-cover` to preserve the matched still in wallpaper mode, and `--force` to regenerate existing packages. The existing package is removed before replacement, so keep a copy when it is valuable.
 
 ## Local Validation
 
@@ -110,5 +123,5 @@ Use a new package for each device test so Photos cannot deduplicate by content i
 | --- | --- |
 | The cover is stretched | Crop the source image and video to the same aspect ratio before running the generator. |
 | Photos imports a Live Photo but Lock Screen animation is unavailable | First replace the cover with the decoded opening video frame and test a fresh PVT. If it succeeds, the source cover was not visually continuous enough for wallpaper eligibility. Otherwise verify 60 fps HEVC `hvc1` and the expected metadata tracks. |
-| The cover jumps when motion starts | Use the decoded opening video frame, or a nearby frame from the same shot, as the cover. Do not change encoding or metadata structure while tuning source media. |
+| The cover jumps when motion starts | Use the default video-frame cover. If `--use-input-cover` was selected, replace the still with the decoded opening frame or a nearby frame from the same shot. Do not change encoding or metadata structure while tuning source media. |
 | `--force` generation fails | Regenerate after inspecting the reported per-file error; the prior PVT may already have been removed. |
