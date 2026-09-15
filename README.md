@@ -1,3 +1,10 @@
+<p align="center">
+ <img width="100px" src="logo.svg" align="center" alt="Logo" />
+ <h2 align="center">Live Photo Batch Converter</h2>
+ <p align="center">Create Apple Live Photo for iOS 26+</p>
+</p>
+<p align="center"> <img alt="version" src="https://img.shields.io/github/release/pudding0503/live-photo-batch"> <img alt="issues" src="https://img.shields.io/github/issues/pudding0503/live-photo-batch?color=F48D73"> <img alt="license" src="https://img.shields.io/github/license/pudding0503/live-photo-batch"> </p>
+
 # Live Photo Batch Converter
 
 Create Apple Live Photo `.pvt` packages from an image and a video. The verified pipeline targets iPhone Lock Screen animated wallpapers as well as ordinary Live Photo import.
@@ -96,4 +103,4 @@ See [the compatibility rules](RULES.md) for the required media profile, validati
 
 ## License
 
-MIT license.
+[MIT license](https://github.com/pudding0503/live-photo-batch/blob/main/LICENSE)
